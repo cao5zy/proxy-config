@@ -1,0 +1,31 @@
+
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# proxy-config specific
+proxy-config.yml
+nginx.conf
+docker-compose.yml
+proxy-config.state
+network-addresses.txt
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+temp/

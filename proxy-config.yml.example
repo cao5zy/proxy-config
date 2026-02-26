@@ -1,0 +1,80 @@
+
+# proxy-config配置文件示例
+# 复制此文件为 proxy-config.yml 并根据需要修改
+
+# 扫描目录列表（支持多个目录）
+# 用于自动发现 Static 和 Api 类型的微应用
+scan_dirs:
+  - "./micro-apps"
+  - "./additional-apps"
+
+# Nginx配置文件输出路径
+nginx_config_path: "./nginx.conf"
+
+# Docker Compose配置文件输出路径
+compose_config_path: "./docker-compose.yml"
+
+# 状态文件路径
+state_file_path: "./proxy-config.state"
+
+# 网络地址列表输出路径
+network_list_path: "./network-addresses.txt"
+
+# Docker网络名称
+network_name: "proxy-network"
+
+# Nginx监听的主机端口（统一入口）
+nginx_host_port: 8080
+
+# 反向代理配置（手动配置）
+apps:
+  # 主应用（静态网站）
+  # Static 和 Api 类型：name 必须与 scan_dirs 中扫描到的文件夹名称一致
+  - name: "main-app"
+    routes: ["/"]  # 支持多个路径
+    container_name: "craftaidhub-main"
+    container_port: 80
+    app_type: "static"
+    description: "主入口网站"
+    
+  # 简历应用（静态网站）
+  - name: "resume-app"
+    routes: ["/resume_app", "/resume"]  # 支持多个路径
+    container_name: "resume-agent-frontend"
+    container_port: 80
+    app_type: "static"
+    description: "简历应用"
+    
+  # API服务
+  - name: "api-service"
+    routes: ["/api", "/api/v1"]  # 支持多个路径
+    container_name: "api-service"
+    container_port: 3000
+    app_type: "api"
+    description: "后端API服务"
+    nginx_extra_config: |
+      # 添加CORS头
+      add_header 'Access-Control-Allow-Origin' '*' always;
+      add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+      add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization' always;
+
+  # 内部服务（如 Redis、MySQL 等）
+  # Internal 类型：不需要 nginx 反向代理，仅用于微应用间内部通信
+  # 必须配置 path 字段，指向包含 Dockerfile 的文件夹路径
+  # 文件夹内应包含：Dockerfile, .env, setup.sh（可选）, clean.sh（可选）
+  - name: "redis"
+    routes: []  # Internal 类型 routes 为空
+    container_name: "redis-container"
+    container_port: 6379
+    app_type: "internal"
+    description: "Redis 缓存服务"
+    path: "./services/redis"  # 必须配置，指向服务文件夹路径
+
+  # 更多内部服务示例
+  # - name: "mysql"
+  #   routes: []
+  #   container_name: "mysql-container"
+  #   container_port: 3306
+  #   app_type: "internal"
+  #   description: "MySQL 数据库服务"
+  #   path: "./services/mysql"
