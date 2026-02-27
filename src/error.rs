@@ -2,7 +2,7 @@
 
 use thiserror::Error;
 
-/// proxy-config 的错误类型
+/// micro_proxy 的错误类型
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("配置错误: {0}")]

@@ -1,7 +1,8 @@
 
-# proxy-config
 
-[![Crates.io](https://img.shields.io/crates/v/proxy-config)](https://crates.io/crates/proxy-config)
+# micro_proxy
+
+[![Crates.io](https://img.shields.io/crates/v/micro_proxy)](https://crates.io/crates/micro_proxy)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
 
@@ -25,7 +26,7 @@
 ### 从 crates.io 安装（推荐）
 
 ```bash
-cargo install proxy-config
+cargo install micro_proxy
 ```
 
 ### 从源码构建
@@ -56,18 +57,18 @@ cp proxy-config.yml.example proxy-config.yml
 
 ```bash
 # 启动所有微应用
-proxy-config start
+micro_proxy start
 
 # 强制重新构建所有镜像
-proxy-config start --force-rebuild
+micro_proxy start --force-rebuild
 
 # 显示详细日志
-proxy-config start -v
+micro_proxy start -v
 ```
 
 ### 3. 访问应用
 
-所有应用通过Nginx统一入口访问，默认端口为80（可在 `proxy-config.yml` 配置文件中的 `nginx_host_port` 字段修改）：
+所有应用通过Nginx统一入口访问，默认端口为80（可在 `micro_proxy.yml` 配置文件中的 `nginx_host_port` 字段修改）：
 
 ```bash
 # 访问主应用
@@ -82,17 +83,17 @@ curl http://localhost/api
 ### start - 启动微应用
 
 ```bash
-proxy-config start [options]
+micro_proxy start [options]
 ```
 
 选项：
-- `-c, --config <path>`: 指定配置文件路径（默认：./proxy-config.yml）
+- `-c, --config <path>`: 指定配置文件路径（默认：./micro_proxy.yml）
 - `--force-rebuild`: 强制重新构建所有镜像
 
 ### stop - 停止微应用
 
 ```bash
-proxy-config stop [options]
+micro_proxy stop [options]
 ```
 
 选项：
@@ -101,7 +102,7 @@ proxy-config stop [options]
 ### clean - 清理微应用
 
 ```bash
-proxy-config clean [options]
+micro_proxy clean [options]
 ```
 
 选项：
@@ -112,7 +113,7 @@ proxy-config clean [options]
 ### status - 查看状态
 
 ```bash
-proxy-config status [options]
+micro_proxy status [options]
 ```
 
 选项：
@@ -121,7 +122,7 @@ proxy-config status [options]
 ### network - 查看网络地址
 
 ```bash
-proxy-config network [options]
+micro_proxy network [options]
 ```
 
 选项：
@@ -283,7 +284,7 @@ services/
 
 - Dockerfile必须放在项目根目录
 - 建议使用EXPOSE指令声明暴露的端口
-- 如果没有EXPOSE指令，proxy-config会发出警告
+- 如果没有EXPOSE指令，micro_proxy会发出警告
 
 示例：
 
@@ -307,12 +308,12 @@ DEBUG=false
 
 **注意：**
 - .env文件是可选的
-- 如果没有.env文件，proxy-config仍然会构建镜像，但不会传递环境变量
+- 如果没有.env文件，micro_proxy仍然会构建镜像，但不会传递环境变量
 - 环境变量只在构建时传递，运行时环境变量需要在Dockerfile中定义
 
 ### 脚本支持
 
-proxy-config支持在微应用中使用脚本来自动化构建和清理过程。
+micro_proxy支持在微应用中使用脚本来自动化构建和清理过程。
 
 #### setup.sh - 预构建脚本
 
@@ -340,11 +341,11 @@ rm -rf node_modules/
 
 **脚本执行时机：**
 - setup.sh在每次构建镜像前执行
-- clean.sh在执行`proxy-config clean`命令时执行
+- clean.sh在执行`micro_proxy clean`命令时执行
 
 ### 应用类型
 
-proxy-config支持三种应用类型，影响Nginx配置和容器配置的生成：
+micro_proxy支持三种应用类型，影响Nginx配置和容器配置的生成：
 
 #### static - 静态网站
 
@@ -401,7 +402,7 @@ path: "./services/redis"  # 必须配置，指向服务文件夹路径
 
 ### 反向代理配置约定
 
-proxy-config 为 Static 和 Api 类型的微应用生成 Nginx 反向代理配置时，遵循以下约定：
+micro_proxy 为 Static 和 Api 类型的微应用生成 Nginx 反向代理配置时，遵循以下约定：
 
 #### Static 类型的反向代理约定
 
@@ -510,7 +511,7 @@ redis-cli -h redis -p 6379
 **网络规则：**
 - 所有容器都在同一个Docker网络中
 - 容器可以通过容器名称相互访问
-- 端口映射由proxy-config自动管理
+- 端口映射由micro_proxy自动管理
 - Static 和 Api 类型的应用通过 nginx 统一入口对外访问
 - Internal 类型的应用仅用于内部通信，不对外暴露
 
@@ -557,7 +558,7 @@ apps:
 
 ```bash
 # 显示详细日志
-proxy-config start -v
+micro_proxy start -v
 
 # 查看容器日志
 docker logs <container-name>
@@ -570,7 +571,7 @@ docker logs proxy-nginx
 
 ```bash
 # 生成并查看网络地址列表
-proxy-config network
+micro_proxy network
 
 # 查看生成的文件
 cat network-addresses.txt
@@ -580,7 +581,7 @@ cat network-addresses.txt
 
 ```bash
 # 查看所有容器状态
-proxy-config status
+micro_proxy status
 
 # 使用docker命令查看
 docker ps -a

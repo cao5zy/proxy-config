@@ -1,5 +1,6 @@
 
-# proxy-config配置文件示例
+
+# micro_proxy配置文件示例
 # 复制此文件为 proxy-config.yml 并根据需要修改
 
 # 扫描目录列表（支持多个目录）

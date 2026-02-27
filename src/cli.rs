@@ -16,9 +16,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
 
-/// proxy-config - 微应用管理工具
+/// micro_proxy - 微应用管理工具
 #[derive(Parser, Debug)]
-#[command(name = "proxy-config")]
+#[command(name = "micro_proxy")]
 #[command(author = "Your Name <your.email@example.com>")]
 #[command(version = crate::VERSION)]
 #[command(about = "用于管理微应用的工具", long_about = None)]
@@ -88,7 +88,7 @@ pub fn run(args: &[String]) -> Result<()> {
         return Err(Error::Config(format!("初始化日志系统失败: {}", e)));
     }
 
-    log::info!("proxy-config v{} 启动", crate::VERSION);
+    log::info!("micro_proxy v{} 启动", crate::VERSION);
     log::debug!("配置文件: {:?}", cli.config);
 
     // 读取配置
@@ -596,7 +596,7 @@ mod tests {
     #[test]
     fn test_cli_parse() {
         let args = vec![
-            "proxy-config".to_string(),
+            "micro_proxy".to_string(),
             "--config".to_string(),
             "./test.yml".to_string(),
             "start".to_string(),
@@ -610,7 +610,7 @@ mod tests {
     #[test]
     fn test_cli_parse_verbose() {
         let args = vec![
-            "proxy-config".to_string(),
+            "micro_proxy".to_string(),
             "-v".to_string(),
             "status".to_string(),
         ];

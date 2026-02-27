@@ -1,6 +1,6 @@
-//! proxy-config 主入口
+//! micro_proxy 主入口
 
-use proxy_config::cli;
+use micro_proxy::cli;
 use std::env;
 
 fn main() {
@@ -9,7 +9,7 @@ fn main() {
 
     // 如果没有参数，显示帮助
     if args.len() == 1 {
-        cli::run(&["proxy-config".to_string(), "--help".to_string()]).unwrap_or_else(|e| {
+        cli::run(&["micro_proxy".to_string(), "--help".to_string()]).unwrap_or_else(|e| {
             eprintln!("错误: {}", e);
             std::process::exit(1);
         });

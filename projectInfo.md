@@ -1,8 +1,8 @@
-# proxy-config 
+# micro_proxy 
 
 ## 1. 项目概述
 
-proxy-config是一个用于管理微应用的工具，它能够：
+micro_proxy是一个用于管理微应用的工具，它能够：
 - 自动发现微应用（支持多个扫描目录）
 - 构建微应用的Docker镜像
 - 生成nginx反向代理配置
