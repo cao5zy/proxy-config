@@ -1,3 +1,4 @@
+
 //! Docker Compose生成模块
 //!
 //! 负责生成docker-compose.yml文件
@@ -5,6 +6,7 @@
 use crate::{config::AppConfig, config::AppType, Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::Path;
 
 /// Docker Compose配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,6 +22,9 @@ pub struct ComposeConfig {
 /// - `network_name`: Docker网络名称
 /// - `nginx_host_port`: nginx监听的主机端口
 /// - `env_files`: 环境变量文件路径映射（应用名称 -> .env文件相对路径）
+/// - `web_root`: Web根目录，用于存放ACME验证文件
+/// - `cert_dir`: 证书目录，用于存放SSL证书
+/// - `domain`: 域名（可选），用于判断是否启用HTTPS
 ///
 /// # 返回
 /// 返回生成的docker-compose.yml内容
@@ -28,12 +33,18 @@ pub fn generate_compose_config(
     network_name: &str,
     nginx_host_port: u16,
     env_files: &HashMap<String, String>,
+    web_root: &str,
+    cert_dir: &str,
+    domain: &Option<String>,
 ) -> Result<String> {
     log::info!("开始生成docker-compose.yml配置");
     log::debug!("网络名称: {}", network_name);
     log::debug!("nginx端口: {}", nginx_host_port);
     log::debug!("应用数量: {}", apps.len());
     log::debug!("环境变量文件数量: {}", env_files.len());
+    log::debug!("web_root: {}", web_root);
+    log::debug!("cert_dir: {}", cert_dir);
+    log::debug!("domain: {:?}", domain);
 
     let mut compose = ComposeConfig {
         services: serde_yaml::Mapping::new(),
@@ -57,8 +68,28 @@ pub fn generate_compose_config(
         serde_yaml::Value::Mapping(network_config),
     );
 
+    // 检查是否启用HTTPS
+    let ssl_enabled = if let Some(ref domain_name) = domain {
+        check_ssl_certificates(cert_dir, domain_name)
+    } else {
+        false
+    };
+
+    if ssl_enabled {
+        log::info!("检测到SSL证书，启用HTTPS端口映射");
+    } else {
+        log::info!("未检测到SSL证书，仅启用HTTP端口映射");
+    }
+
     // 添加nginx服务（仅依赖于非 Internal 类型的应用）
-    let nginx_service = generate_nginx_service(nginx_host_port, network_name, apps);
+    let nginx_service = generate_nginx_service(
+        nginx_host_port,
+        network_name,
+        apps,
+        web_root,
+        cert_dir,
+        ssl_enabled,
+    );
     compose.services.insert(
         serde_yaml::Value::String("nginx".to_string()),
         serde_yaml::Value::Mapping(nginx_service),
@@ -87,12 +118,54 @@ pub fn generate_compose_config(
     Ok(yaml)
 }
 
+/// 检查SSL证书文件是否存在
+///
+/// # 参数
+/// - `cert_dir`: 证书目录
+/// - `domain`: 域名
+///
+/// # 返回
+/// 如果证书和密钥文件都存在，返回 true，否则返回 false
+fn check_ssl_certificates(cert_dir: &str, domain: &str) -> bool {
+    // 尝试常见的证书文件扩展名
+    let cert_extensions = vec![".cer", ".crt"];
+    let mut cert_exists = false;
+
+    for ext in &cert_extensions {
+        let cert_path = Path::new(cert_dir).join(format!("{}{}", domain, ext));
+        log::debug!("检查证书文件: {:?}", cert_path);
+        if cert_path.exists() {
+            cert_exists = true;
+            break;
+        }
+    }
+
+    if !cert_exists {
+        log::debug!("未找到证书文件: {}/{}{{.cer,.crt}}", cert_dir, domain);
+        return false;
+    }
+
+    // 检查密钥文件
+    let key_path = Path::new(cert_dir).join(format!("{}.key", domain));
+    log::debug!("检查密钥文件: {:?}", key_path);
+    if key_path.exists() {
+        log::info!("找到SSL证书和密钥文件");
+        true
+    } else {
+        log::debug!("未找到密钥文件: {:?}", key_path);
+        false
+    }
+}
+
 /// 生成nginx服务配置（纯函数）
 ///
 /// # 参数
 /// - `nginx_host_port`: nginx监听的主机端口
 /// - `network_name`: 网络名称
 /// - `apps`: 应用配置列表（用于设置依赖关系，仅依赖非 Internal 类型）
+/// - `web_root`: Web根目录，用于存放ACME验证文件
+/// - `cert_dir`: 证书目录，用于存放SSL证书
+/// - `ssl_enabled`: 是否启用HTTPS
 ///
 /// # 返回
 /// 返回nginx服务配置
@@ -100,7 +173,15 @@ fn generate_nginx_service(
     nginx_host_port: u16,
     network_name: &str,
     apps: &[AppConfig],
+    web_root: &str,
+    cert_dir: &str,
+    ssl_enabled: bool,
 ) -> serde_yaml::Mapping {
+    log::debug!("生成nginx服务配置");
+    log::debug!("web_root: {}", web_root);
+    log::debug!("cert_dir: {}", cert_dir);
+    log::debug!("ssl_enabled: {}", ssl_enabled);
+
     let mut service = serde_yaml::Mapping::new();
 
     // 镜像
@@ -115,15 +196,27 @@ fn generate_nginx_service(
         serde_yaml::Value::String("proxy-nginx".to_string()),
     );
 
-    // 端口映射（只有nginx映射主机端口）
-    let ports = vec![format!("{}:80", nginx_host_port)];
+    // 端口映射
+    let mut ports = vec![format!("{}:80", nginx_host_port)];
+    if ssl_enabled {
+        ports.push("443:443".to_string());
+        log::debug!("添加HTTPS端口映射: 443:443");
+    }
     service.insert(
         serde_yaml::Value::String("ports".to_string()),
         serde_yaml::Value::Sequence(ports.into_iter().map(serde_yaml::Value::String).collect()),
     );
 
     // 卷挂载
-    let volumes = vec!["./nginx.conf:/etc/nginx/nginx.conf:ro".to_string()];
+    // 1. nginx.conf 配置文件
+    // 2. web_root 目录（用于 ACME 验证）
+    // 3. cert_dir 目录（用于 SSL 证书）
+    let volumes = vec![
+        "./nginx.conf:/etc/nginx/nginx.conf:ro".to_string(),
+        format!("{}:{}", web_root, web_root),
+        format!("{}:{}", cert_dir, cert_dir),
+    ];
+    log::debug!("nginx卷挂载配置: {:?}", volumes);
     service.insert(
         serde_yaml::Value::String("volumes".to_string()),
         serde_yaml::Value::Sequence(volumes.into_iter().map(serde_yaml::Value::String).collect()),
@@ -361,7 +454,16 @@ mod tests {
             "./micro-apps/api-service/.env".to_string(),
         );
 
-        let config = generate_compose_config(&apps, "test-network", 8080, &env_files).unwrap();
+        let config = generate_compose_config(
+            &apps,
+            "test-network",
+            8080,
+            &env_files,
+            "/var/www/html",
+            "/etc/nginx/certs",
+            &None,
+        )
+        .unwrap();
 
         assert!(!config.contains("version:"));
         assert!(config.contains("services:"));
@@ -371,6 +473,8 @@ mod tests {
         assert!(config.contains("api-container:"));
         assert!(config.contains("test-network:"));
         assert!(config.contains("8080:80"));
+        // 没有SSL证书，不应该有443端口
+        assert!(!config.contains("443:443"));
         // 检查依赖关系
         assert!(config.contains("depends_on:"));
         assert!(config.contains("- main-container"));
@@ -383,6 +487,58 @@ mod tests {
         assert!(config.contains("env_file:"));
         assert!(config.contains("./micro-apps/main-app/.env"));
         assert!(config.contains("./micro-apps/api-service/.env"));
+        // 检查 web_root 和 cert_dir 卷挂载
+        assert!(config.contains("/var/www/html:/var/www/html"));
+        assert!(config.contains("/etc/nginx/certs:/etc/nginx/certs"));
+    }
+
+    #[test]
+    fn test_generate_compose_config_with_ssl() {
+        let apps = vec![
+            AppConfig {
+                name: "main-app".to_string(),
+                routes: vec!["/".to_string()],
+                container_name: "main-container".to_string(),
+                container_port: 80,
+                app_type: AppType::Static,
+                description: None,
+                nginx_extra_config: None,
+                path: None,
+            },
+        ];
+
+        let mut env_files = HashMap::new();
+
+        // 创建临时证书文件
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cert_dir = temp_dir.path().to_str().unwrap();
+        let domain = "example.com";
+        
+        // 创建 .cer 文件
+        std::fs::write(
+            temp_dir.path().join(format!("{}.cer", domain)),
+            "fake cert"
+        ).unwrap();
+        // 创建 .key 文件
+        std::fs::write(
+            temp_dir.path().join(format!("{}.key", domain)),
+            "fake key"
+        ).unwrap();
+
+        let config = generate_compose_config(
+            &apps,
+            "test-network",
+            8080,
+            &env_files,
+            "/var/www/html",
+            cert_dir,
+            &Some(domain.to_string()),
+        )
+        .unwrap();
+
+        // 应该包含443端口映射
+        assert!(config.contains("8080:80"));
+        assert!(config.contains("443:443"));
     }
 
     #[test]
@@ -431,7 +587,16 @@ mod tests {
             "./micro-apps/api-service/.env".to_string(),
         );
 
-        let config = generate_compose_config(&apps, "test-network", 8080, &env_files).unwrap();
+        let config = generate_compose_config(
+            &apps,
+            "test-network",
+            8080,
+            &env_files,
+            "/var/www/html",
+            "/etc/nginx/certs",
+            &None,
+        )
+        .unwrap();
 
         // 检查所有服务都存在
         assert!(config.contains("nginx:"));
@@ -458,6 +623,10 @@ mod tests {
         assert!(config.contains("./micro-apps/main-app/.env"));
         assert!(config.contains("./services/redis/.env"));
         assert!(config.contains("./micro-apps/api-service/.env"));
+
+        // 检查 web_root 和 cert_dir 卷挂载
+        assert!(config.contains("/var/www/html:/var/www/html"));
+        assert!(config.contains("/etc/nginx/certs:/etc/nginx/certs"));
     }
 
     #[test]
@@ -477,7 +646,16 @@ mod tests {
         let mut env_files = HashMap::new();
         env_files.insert("redis".to_string(), "./services/redis/.env".to_string());
 
-        let config = generate_compose_config(&apps, "test-network", 8080, &env_files).unwrap();
+        let config = generate_compose_config(
+            &apps,
+            "test-network",
+            8080,
+            &env_files,
+            "/var/www/html",
+            "/etc/nginx/certs",
+            &None,
+        )
+        .unwrap();
 
         // 检查服务存在
         assert!(config.contains("nginx:"));
@@ -492,6 +670,10 @@ mod tests {
         // 检查环境变量文件
         assert!(config.contains("env_file:"));
         assert!(config.contains("./services/redis/.env"));
+
+        // 检查 web_root 和 cert_dir 卷挂载
+        assert!(config.contains("/var/www/html:/var/www/html"));
+        assert!(config.contains("/etc/nginx/certs:/etc/nginx/certs"));
     }
 
     #[test]

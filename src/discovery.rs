@@ -1,4 +1,3 @@
-
 //! 应用发现模块
 //!
 //! 负责扫描微应用目录，发现符合条件的微应用
@@ -150,7 +149,13 @@ pub fn discover_micro_apps(scan_dirs: &[String]) -> Result<Vec<MicroApp>> {
             // 检查名称是否重复
             if app_names.contains(&name) {
                 log::error!("发现重复的微应用名称: '{}', 路径: {:?}", name, path);
-                log::error!("已存在的微应用路径: {:?}", micro_apps.iter().find(|app| app.name == name).map(|app| &app.path));
+                log::error!(
+                    "已存在的微应用路径: {:?}",
+                    micro_apps
+                        .iter()
+                        .find(|app| app.name == name)
+                        .map(|app| &app.path)
+                );
                 return Err(Error::Discovery(format!(
                     "发现重复的微应用名称: '{}', 请确保所有扫描目录中的微应用名称唯一",
                     name

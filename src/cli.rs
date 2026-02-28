@@ -1,3 +1,4 @@
+
 //! 命令行接口模块
 //!
 //! 负责提供命令行交互接口
@@ -389,7 +390,13 @@ fn execute_start(config: &ProxyConfig, force_rebuild: bool) -> Result<()> {
 
     // 6. 生成nginx配置
     log::info!("生成nginx配置...");
-    let nginx_config = nginx::generate_nginx_config(&config.apps, config.nginx_host_port)?;
+    let nginx_config = nginx::generate_nginx_config(
+        &config.apps,
+        config.nginx_host_port,
+        &config.web_root,
+        &config.cert_dir,
+        &config.domain,
+    )?;
     nginx::save_nginx_config(&nginx_config, &config.nginx_config_path)?;
 
     // 7. 生成docker-compose配置
@@ -399,6 +406,9 @@ fn execute_start(config: &ProxyConfig, force_rebuild: bool) -> Result<()> {
         &config.network_name,
         config.nginx_host_port,
         &env_files,
+        &config.web_root,
+        &config.cert_dir,
+        &config.domain,
     )?;
     compose::save_compose_config(&compose_config, &config.compose_config_path)?;
 

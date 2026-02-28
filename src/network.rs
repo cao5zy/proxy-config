@@ -1,4 +1,3 @@
-
 //! 网络管理模块
 //!
 //! 负责管理Docker网络和网络地址
@@ -110,12 +109,10 @@ pub fn network_exists(network_name: &str) -> Result<bool> {
         })?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     // Docker 的 --filter name= 是模糊匹配，所以我们需要在结果中做精确匹配
     // 将输出按行分割，然后检查是否有完全匹配的网络名称
-    let exists = stdout
-        .lines()
-        .any(|line| line.trim() == network_name);
+    let exists = stdout.lines().any(|line| line.trim() == network_name);
 
     log::debug!("网络 {} 存在: {}", network_name, exists);
     Ok(exists)

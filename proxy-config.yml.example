@@ -1,5 +1,4 @@
 
-
 # micro_proxy配置文件示例
 # 复制此文件为 proxy-config.yml 并根据需要修改
 
@@ -26,6 +25,27 @@ network_name: "proxy-network"
 
 # Nginx监听的主机端口（统一入口）
 nginx_host_port: 8080
+
+# Web根目录（可选）
+# 用于存放 ACME 验证文件，支持 Let's Encrypt 证书申请
+# acme.sh 会在该目录下创建 .well-known/acme-challenge/ 目录
+# 默认值: "/var/www/html"
+# 如果不需要配置 HTTPS 证书，可以不设置此字段，或注释掉
+# web_root: "/var/www/html"
+
+# 证书目录（可选）
+# 主机上存放 SSL 证书的目录
+# acme.sh 会将生成的证书部署到此目录
+# 默认值: "/etc/nginx/certs"
+# 如果不需要配置 HTTPS 证书，可以不设置此字段，或注释掉
+# cert_dir: "/etc/nginx/certs"
+
+# 域名（可选）
+# 用于配置 HTTPS。如果配置了此字段且证书文件存在，nginx 将启用 HTTPS
+# 证书文件命名规则: {cert_dir}/{domain}.cer (或 .crt)
+# 密钥文件命名规则: {cert_dir}/{domain}.key
+# 示例:
+# domain: "example.com"
 
 # 反向代理配置（手动配置）
 apps:

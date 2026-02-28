@@ -84,8 +84,41 @@ pub struct ProxyConfig {
     /// Nginx监听的主机端口（统一入口）
     pub nginx_host_port: u16,
 
+    /// Web根目录
+    /// 用于存放 ACME 验证文件，支持 Let's Encrypt 证书申请
+    /// acme.sh 会在该目录下创建 .well-known/acme-challenge/ 目录
+    /// 默认值: "/var/www/html"
+    #[serde(default = "default_web_root")]
+    pub web_root: String,
+
+    /// 证书目录
+    /// 主机上存放 SSL 证书的目录
+    /// acme.sh 会将生成的证书部署到此目录
+    /// 默认值: "/etc/nginx/certs"
+    #[serde(default = "default_cert_dir")]
+    pub cert_dir: String,
+
+    /// 域名（可选）
+    /// 用于配置 HTTPS。如果配置了此字段且证书文件存在，nginx 将启用 HTTPS
+    /// 证书文件命名规则: {cert_dir}/{domain}.cer (或 .crt)
+    /// 密钥文件命名规则: {cert_dir}/{domain}.key
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+
     /// 反向代理配置（手动配置）
     pub apps: Vec<AppConfig>,
+}
+
+/// 默认 web_root 值
+fn default_web_root() -> String {
+    log::debug!("使用默认 web_root: /var/www/html");
+    "/var/www/html".to_string()
+}
+
+/// 默认 cert_dir 值
+fn default_cert_dir() -> String {
+    log::debug!("使用默认 cert_dir: /etc/nginx/certs");
+    "/etc/nginx/certs".to_string()
 }
 
 impl ProxyConfig {
@@ -112,6 +145,11 @@ impl ProxyConfig {
 
         log::info!("配置文件加载成功，发现 {} 个应用配置", config.apps.len());
         log::debug!("配置内容: {:?}", config);
+        log::debug!("web_root: {}", config.web_root);
+        log::debug!("cert_dir: {}", config.cert_dir);
+        if let Some(ref domain) = config.domain {
+            log::debug!("domain: {}", domain);
+        }
 
         Ok(config)
     }
@@ -305,6 +343,42 @@ app_type: internal
     }
 
     #[test]
+    fn test_default_web_root() {
+        let config = ProxyConfig {
+            scan_dirs: vec!["./apps".to_string()],
+            nginx_config_path: "./nginx.conf".to_string(),
+            compose_config_path: "./docker-compose.yml".to_string(),
+            state_file_path: "./state".to_string(),
+            network_list_path: "./network.txt".to_string(),
+            network_name: "test-network".to_string(),
+            nginx_host_port: 8080,
+            web_root: default_web_root(),
+            cert_dir: default_cert_dir(),
+            domain: None,
+            apps: vec![],
+        };
+        assert_eq!(config.web_root, "/var/www/html");
+    }
+
+    #[test]
+    fn test_default_cert_dir() {
+        let config = ProxyConfig {
+            scan_dirs: vec!["./apps".to_string()],
+            nginx_config_path: "./nginx.conf".to_string(),
+            compose_config_path: "./docker-compose.yml".to_string(),
+            state_file_path: "./state".to_string(),
+            network_list_path: "./network.txt".to_string(),
+            network_name: "test-network".to_string(),
+            nginx_host_port: 8080,
+            web_root: default_web_root(),
+            cert_dir: default_cert_dir(),
+            domain: None,
+            apps: vec![],
+        };
+        assert_eq!(config.cert_dir, "/etc/nginx/certs");
+    }
+
+    #[test]
     fn test_validate_empty_scan_dirs() {
         let config = ProxyConfig {
             scan_dirs: vec![],
@@ -314,6 +388,9 @@ app_type: internal
             network_list_path: "./network.txt".to_string(),
             network_name: "test-network".to_string(),
             nginx_host_port: 8080,
+            web_root: default_web_root(),
+            cert_dir: default_cert_dir(),
+            domain: None,
             apps: vec![],
         };
 
@@ -331,6 +408,9 @@ app_type: internal
             network_list_path: "./network.txt".to_string(),
             network_name: "test-network".to_string(),
             nginx_host_port: 8080,
+            web_root: default_web_root(),
+            cert_dir: default_cert_dir(),
+            domain: None,
             apps: vec![
                 AppConfig {
                     name: "test-app".to_string(),
@@ -370,6 +450,9 @@ app_type: internal
             network_list_path: "./network.txt".to_string(),
             network_name: "test-network".to_string(),
             nginx_host_port: 8080,
+            web_root: default_web_root(),
+            cert_dir: default_cert_dir(),
+            domain: None,
             apps: vec![AppConfig {
                 name: "test-app".to_string(),
                 routes: vec!["/".to_string()],
@@ -396,6 +479,9 @@ app_type: internal
             network_list_path: "./network.txt".to_string(),
             network_name: "test-network".to_string(),
             nginx_host_port: 8080,
+            web_root: default_web_root(),
+            cert_dir: default_cert_dir(),
+            domain: None,
             apps: vec![AppConfig {
                 name: "redis".to_string(),
                 routes: vec![],
@@ -428,6 +514,9 @@ app_type: internal
             network_list_path: "./network.txt".to_string(),
             network_name: "test-network".to_string(),
             nginx_host_port: 8080,
+            web_root: default_web_root(),
+            cert_dir: default_cert_dir(),
+            domain: None,
             apps: vec![
                 AppConfig {
                     name: "test-app".to_string(),
@@ -466,6 +555,9 @@ app_type: internal
             network_list_path: "./network.txt".to_string(),
             network_name: "test-network".to_string(),
             nginx_host_port: 8080,
+            web_root: default_web_root(),
+            cert_dir: default_cert_dir(),
+            domain: None,
             apps: vec![
                 AppConfig {
                     name: "test-app".to_string(),
@@ -512,6 +604,9 @@ app_type: internal
             network_list_path: "./network.txt".to_string(),
             network_name: "test-network".to_string(),
             nginx_host_port: 8080,
+            web_root: default_web_root(),
+            cert_dir: default_cert_dir(),
+            domain: None,
             apps: vec![
                 AppConfig {
                     name: "test-app".to_string(),
@@ -551,6 +646,9 @@ app_type: internal
             network_list_path: "./network.txt".to_string(),
             network_name: "test-network".to_string(),
             nginx_host_port: 8080,
+            web_root: default_web_root(),
+            cert_dir: default_cert_dir(),
+            domain: None,
             apps: vec![
                 AppConfig {
                     name: "test-app".to_string(),
