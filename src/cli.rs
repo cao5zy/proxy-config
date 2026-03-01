@@ -392,7 +392,6 @@ fn execute_start(config: &ProxyConfig, force_rebuild: bool) -> Result<()> {
     log::info!("生成nginx配置...");
     let nginx_config = nginx::generate_nginx_config(
         &config.apps,
-        config.nginx_host_port,
         &config.web_root,
         &config.cert_dir,
         &config.domain,
