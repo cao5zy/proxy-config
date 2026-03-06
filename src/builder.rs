@@ -1,3 +1,4 @@
+
 //! 镜像构建模块
 //!
 //! 负责构建微应用的Docker镜像
@@ -13,6 +14,7 @@ use std::process::Command;
 /// - `dockerfile_path`: Dockerfile路径
 /// - `build_context`: 构建上下文路径
 /// - `env_file`: 环境变量文件路径（可选）
+/// - `no_cache`: 是否禁用构建缓存
 ///
 /// # 返回
 /// 返回构建结果
@@ -21,6 +23,7 @@ pub fn build_image<P: AsRef<Path>>(
     dockerfile_path: P,
     build_context: P,
     env_file: Option<P>,
+    no_cache: bool,
 ) -> Result<()> {
     let dockerfile_path = dockerfile_path.as_ref();
     let build_context = build_context.as_ref();
@@ -28,6 +31,7 @@ pub fn build_image<P: AsRef<Path>>(
     log::info!("开始构建Docker镜像: {}", image_name);
     log::debug!("Dockerfile路径: {:?}", dockerfile_path);
     log::debug!("构建上下文: {:?}", build_context);
+    log::debug!("禁用缓存: {}", no_cache);
 
     // 检查Dockerfile是否存在
     if !dockerfile_path.exists() {
@@ -54,6 +58,12 @@ pub fn build_image<P: AsRef<Path>>(
         .arg(image_name)
         .arg("-f")
         .arg(dockerfile_path);
+
+    // 如果需要禁用缓存，添加--no-cache参数
+    if no_cache {
+        cmd.arg("--no-cache");
+        log::info!("已启用 --no-cache 参数，将不使用构建缓存");
+    }
 
     // 如果有环境变量文件，添加--build-arg参数
     if let Some(env_file) = env_file {
@@ -185,6 +195,7 @@ mod tests {
             dockerfile_path.as_path(),
             temp_dir.path(),
             None::<&Path>,
+            false,
         );
         assert!(result.is_err());
     }
@@ -200,6 +211,7 @@ mod tests {
             dockerfile_path.as_path(),
             context_path.as_path(),
             None::<&Path>,
+            false,
         );
         assert!(result.is_err());
     }

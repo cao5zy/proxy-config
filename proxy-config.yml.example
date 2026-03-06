@@ -57,6 +57,13 @@ apps:
     container_port: 80
     app_type: "static"
     description: "主入口网站"
+    # Docker volumes 映射（可选）
+    # 用于将宿主机目录或文件挂载到容器中
+    # 格式：["宿主机路径:容器路径", "宿主机路径:容器路径:ro"]
+    # ro 表示只读挂载，rw 表示读写挂载（默认）
+    docker_volumes:
+      - "./data:/app/data"  # 读写挂载
+      - "./config:/app/config:ro"  # 只读挂载
     
   # 简历应用（静态网站）
   - name: "resume-app"
@@ -65,6 +72,9 @@ apps:
     container_port: 80
     app_type: "static"
     description: "简历应用"
+    # Docker volumes 映射示例
+    docker_volumes:
+      - "./resume-data:/app/uploads"
     
   # API服务
   - name: "api-service"
@@ -78,6 +88,10 @@ apps:
       add_header 'Access-Control-Allow-Origin' '*' always;
       add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
       add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization' always;
+    # Docker volumes 映射示例
+    docker_volumes:
+      - "./api-logs:/app/logs"
+      - "./api-data:/app/data"
 
   # 内部服务（如 Redis、MySQL 等）
   # Internal 类型：不需要 nginx 反向代理，仅用于微应用间内部通信
@@ -90,6 +104,9 @@ apps:
     app_type: "internal"
     description: "Redis 缓存服务"
     path: "./services/redis"  # 必须配置，指向服务文件夹路径
+    # Docker volumes 映射示例（持久化 Redis 数据）
+    docker_volumes:
+      - "./redis-data:/data"
 
   # 更多内部服务示例
   # - name: "mysql"
@@ -99,3 +116,6 @@ apps:
   #   app_type: "internal"
   #   description: "MySQL 数据库服务"
   #   path: "./services/mysql"
+  #   docker_volumes:
+  #     - "./mysql-data:/var/lib/mysql"
+  #     - "./mysql-conf:/etc/mysql/conf.d:ro"

@@ -1,4 +1,3 @@
-
 //! Nginx配置生成模块
 //!
 //! 负责根据配置生成nginx.conf
@@ -588,6 +587,7 @@ mod tests {
             description: None,
             nginx_extra_config: None,
             path: None,
+            docker_volumes: vec![],
         };
 
         let location = generate_location_config(&app, "/");
@@ -612,6 +612,7 @@ mod tests {
             description: None,
             nginx_extra_config: None,
             path: None,
+            docker_volumes: vec![],
         };
 
         let location = generate_location_config(&app, "/resume_app");
@@ -636,6 +637,7 @@ mod tests {
             description: None,
             nginx_extra_config: Some("add_header 'Access-Control-Allow-Origin' '*';".to_string()),
             path: None,
+            docker_volumes: vec![],
         };
 
         let location = generate_location_config(&app, "/api");
@@ -660,6 +662,7 @@ mod tests {
                 description: None,
                 nginx_extra_config: None,
                 path: None,
+                docker_volumes: vec![],
             },
             AppConfig {
                 name: "api-service".to_string(),
@@ -670,6 +673,7 @@ mod tests {
                 description: None,
                 nginx_extra_config: None,
                 path: None,
+                docker_volumes: vec![],
             },
         ];
 
@@ -739,6 +743,7 @@ mod tests {
                 description: None,
                 nginx_extra_config: None,
                 path: None,
+                docker_volumes: vec![],
             },
             AppConfig {
                 name: "api-service".to_string(),
@@ -749,6 +754,7 @@ mod tests {
                 description: None,
                 nginx_extra_config: None,
                 path: None,
+                docker_volumes: vec![],
             },
         ];
 
@@ -821,6 +827,7 @@ mod tests {
                 description: None,
                 nginx_extra_config: None,
                 path: None,
+                docker_volumes: vec![],
             },
             AppConfig {
                 name: "redis".to_string(),
@@ -831,6 +838,7 @@ mod tests {
                 description: None,
                 nginx_extra_config: None,
                 path: Some("./services/redis".to_string()),
+                docker_volumes: vec![],
             },
             AppConfig {
                 name: "api-service".to_string(),
@@ -841,6 +849,7 @@ mod tests {
                 description: None,
                 nginx_extra_config: None,
                 path: None,
+                docker_volumes: vec![],
             },
         ];
 
@@ -908,6 +917,7 @@ mod tests {
             description: None,
             nginx_extra_config: None,
             path: None,
+            docker_volumes: vec![],
         }];
 
         let config = generate_nginx_config(&apps, "/var/www/html", "/etc/nginx/certs", &None).unwrap();
@@ -932,6 +942,7 @@ mod tests {
                 description: None,
                 nginx_extra_config: None,
                 path: None,
+                docker_volumes: vec![],
             },
             AppConfig {
                 name: "resume-app".to_string(),
@@ -942,6 +953,7 @@ mod tests {
                 description: None,
                 nginx_extra_config: None,
                 path: None,
+                docker_volumes: vec![],
             },
             AppConfig {
                 name: "api-service".to_string(),
@@ -952,6 +964,7 @@ mod tests {
                 description: None,
                 nginx_extra_config: None,
                 path: None,
+                docker_volumes: vec![],
             },
         ];
 
@@ -988,6 +1001,7 @@ mod tests {
             description: None,
             nginx_extra_config: None,
             path: None,
+            docker_volumes: vec![],
         };
 
         let location = generate_location_config(&app, "/resume_app");
@@ -1011,6 +1025,7 @@ mod tests {
             description: None,
             nginx_extra_config: None,
             path: None,
+            docker_volumes: vec![],
         };
 
         let location = generate_location_config(&app, "/api");
@@ -1034,6 +1049,7 @@ mod tests {
             description: None,
             nginx_extra_config: None,
             path: Some("./services/redis".to_string()),
+            docker_volumes: vec![],
         }];
 
         let config = generate_nginx_config(&apps, "/var/www/html", "/etc/nginx/certs", &None).unwrap();

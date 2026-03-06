@@ -1,3 +1,4 @@
+
 # micro_proxy
 
 [![Crates.io](https://img.shields.io/crates/v/micro_proxy)](https://crates.io/crates/micro_proxy)
@@ -20,6 +21,7 @@ A tool for managing micro-apps, supporting Docker image building, container mana
 - 📋 **Network Address List** - Generates network address list for connectivity troubleshooting
 - 🔒 **Internal Service Support** - Supports internal services like Redis, MySQL that don't require Nginx proxy
 - 🔐 **SSL Certificate Support** - Supports Let's Encrypt certificate requests with automatic ACME validation (optional)
+- 💾 **Volumes Mapping Support** - Supports configuring Docker volumes mapping for micro-apps to achieve data persistence
 
 ## Installation
 
@@ -154,16 +156,20 @@ network_list_path: "./network-addresses.txt"
 network_name: "proxy-network"
 
 # Nginx host port (unified entry point)
+# Note: This is the host port, mapped to container's internal port 80 via Docker port mapping
+# For example: when set to 8080, accessing http://localhost:8080 maps to container's internal port 80
 nginx_host_port: 80
 
 # Web root directory (optional)
 # Used for storing ACME challenge files, supports Let's Encrypt certificate requests
+# acme.sh will create .well-known/acme-challenge/ directory in this directory
 # Default value: "/var/www/html"
 # Can be omitted if HTTPS certificates are not needed
 # web_root: "/var/www/html"
 
 # Certificate directory (optional)
 # Host directory for storing SSL certificates
+# acme.sh will deploy generated certificates to this directory
 # Default value: "/etc/nginx/certs"
 # Can be omitted if HTTPS certificates are not needed
 # cert_dir: "/etc/nginx/certs"
@@ -184,6 +190,9 @@ apps:
     container_port: 80             # Container internal port
     app_type: "static"             # Application type: static, api, or internal
     description: "Application description"  # Optional
+    docker_volumes:                # Docker volumes mapping (optional)
+      - "./data:/app/data"         # Read-write mount
+      - "./config:/app/config:ro"  # Read-only mount
     nginx_extra_config: |          # Optional: additional nginx configuration (static and api only)
       add_header 'X-Custom-Header' 'value';
 
@@ -195,7 +204,225 @@ apps:
     app_type: "internal"
     description: "Redis cache service"
     path: "./services/redis"       # Must be configured, pointing to service folder path
+    docker_volumes:                # Docker volumes mapping (optional)
+      - "./redis-data:/data"       # Persist Redis data
 ```
+
+### Docker Volumes Configuration Guide
+
+The `docker_volumes` field is used to configure Docker container volume mounts for data persistence and file sharing.
+
+#### Configuration Format
+
+```yaml
+docker_volumes:
+  - "host_path:container_path"           # Read-write mount (default)
+  - "host_path:container_path:ro"       # Read-only mount
+  - "host_path:container_path:rw"       # Read-write mount (explicit)
+```
+
+#### Use Cases
+
+1. **Data Persistence**: Mount container data directories to host to avoid data loss after container deletion
+   ```yaml
+   docker_volumes:
+     - "./redis-data:/data"        # Redis data persistence
+     - "./mysql-data:/var/lib/mysql"  # MySQL data persistence
+   ```
+
+2. **Configuration File Sharing**: Mount host configuration files into container for easy configuration modification
+   ```yaml
+   docker_volumes:
+     - "./config:/app/config:ro"   # Read-only mount for configuration files
+   ```
+
+3. **Log Output**: Mount container log directories to host for easy log viewing and analysis
+   ```yaml
+   docker_volumes:
+     - "./logs:/app/logs"          # Output logs to host
+   ```
+
+4. **File Uploads**: Store user-uploaded files on host
+   ```yaml
+   docker_volumes:
+     - "./uploads:/app/uploads"    # Store user uploaded files
+   ```
+
+#### Important Notes
+
+- **Path Format**: Supports both relative and absolute paths
+  - Relative path: `./data:/app/data` (relative to docker-compose.yml directory)
+  - Absolute path: `/var/data:/app/data`
+
+- **Permission Control**:
+  - `ro`: Read-only mount, cannot be modified inside container
+  - `rw`: Read-write mount (default), can be modified inside container
+
+- **Directory Creation**: Docker will automatically create host path if it doesn't exist
+
+- **Path Separator**: Recommend using forward slash `/`, even on Windows systems
+
+#### Examples
+
+```yaml
+apps:
+  # Static website application
+  - name: "main-app"
+    routes: ["/"]
+    container_name: "main-container"
+    container_port: 80
+    app_type: "static"
+    docker_volumes:
+      - "./static-data:/usr/share/nginx/html/data"
+      - "./static-config:/etc/nginx/conf.d:ro"
+
+  # API service
+  - name: "api-service"
+    routes: ["/api"]
+    container_name: "api-container"
+    container_port: 3000
+    app_type: "api"
+    docker_volumes:
+      - "./api-logs:/app/logs"
+      - "./api-uploads:/app/uploads"
+
+  # Redis internal service
+  - name: "redis"
+    routes: []
+    container_name: "redis-container"
+    container_port: 6379
+    app_type: "internal"
+    path: "./services/redis"
+    docker_volumes:
+      - "./redis-data:/data"
+```
+
+### Port Configuration Guide
+
+micro_proxy uses Docker port mapping to map host ports to container internal ports. Understanding this mechanism is important for correct configuration.
+
+#### Port Mapping Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Host Machine                          │
+│                                                              │
+│  User Access: http://localhost:8080                           │
+│         │                                                     │
+│         ▼                                                     │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │  Docker Port Mapping (8080:80)                     │    │
+│  │  nginx_host_port: 8080  ──mapped──►  Container: 80  │    │
+│  └─────────────────────────────────────────────────────┘    │
+│         │                                                     │
+│         ▼                                                     │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │              Nginx Container                          │    │
+│  │                                                      │    │
+│  │  nginx.conf listen directive:                        │    │
+│  │    - HTTP:  listen 80;                               │    │
+│  │    - HTTPS: listen 443 ssl;                          │    │
+│  │                                                      │    │
+│  │  Note: nginx.conf ports are container internal,     │    │
+│  │       fixed at 80 (HTTP) and 443 (HTTPS)            │    │
+│  └─────────────────────────────────────────────────────┘    │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Configuration Item Description
+
+| Configuration Item | Purpose | Example Value | Description |
+|-------------------|---------|---------------|-------------|
+| `nginx_host_port` | Host port | 8080 | Port users access, mapped to container internal via Docker port mapping |
+| `nginx.conf` `listen` | Container internal port | 80 | Fixed value, automatically generated by micro_proxy, no manual modification needed |
+
+#### Port Mapping Examples
+
+**Example 1: Using Default Port 80**
+
+```yaml
+# proxy-config.yml
+nginx_host_port: 80
+```
+
+Generated docker-compose.yml:
+```yaml
+services:
+  nginx:
+    ports:
+      - "80:80"    # Host port 80 mapped to container internal port 80
+```
+
+Access method:
+```bash
+curl http://localhost/
+```
+
+**Example 2: Using Custom Port 8080**
+
+```yaml
+# proxy-config.yml
+nginx_host_port: 8080
+```
+
+Generated docker-compose.yml:
+```yaml
+services:
+  nginx:
+    ports:
+      - "8080:80"  # Host port 8080 mapped to container internal port 80
+```
+
+Access method:
+```bash
+curl http://localhost:8080/
+```
+
+**Example 3: Enabling HTTPS**
+
+```yaml
+# proxy-config.yml
+nginx_host_port: 8080
+domain: "example.com"
+```
+
+Generated docker-compose.yml:
+```yaml
+services:
+  nginx:
+    ports:
+      - "8080:80"   # HTTP: Host port 8080 mapped to container internal port 80
+      - "443:443"   # HTTPS: Host port 443 mapped to container internal port 443
+```
+
+Access method:
+```bash
+# HTTP (will redirect to HTTPS)
+curl http://localhost:8080/
+
+# HTTPS
+curl https://example.com/
+```
+
+#### Important Notes
+
+1. **nginx_host_port Only Affects Host Port**
+   - Modifying `nginx_host_port` only changes Docker port mapping
+   - Does not affect `nginx.conf` `listen` directive
+
+2. **nginx.conf Ports Are Fixed**
+   - HTTP: Fixed at 80
+   - HTTPS: Fixed at 443
+   - These ports are automatically generated by micro_proxy, no manual modification needed
+
+3. **Port Conflict Handling**
+   - If host port is already in use, modify `nginx_host_port`
+   - For example: if port 80 is occupied, set to 8080
+
+4. **HTTPS Port**
+   - When HTTPS is enabled, port 443 is automatically added to port mapping
+   - Port 443 is the standard HTTPS port, usually no modification needed
 
 #### Scan Directory Guidelines
 
@@ -434,7 +661,7 @@ All micro-apps run in the same Docker network, supporting the following communic
 
 #### External Services
 - Static and API type micro-apps are exposed externally through Nginx unified entry point
-- Access URL: `http://<host>:<port>/<configured-route>`
+- Access URL: `http://<host>:<nginx_host_port>/<configured-route>`
 
 #### Internal Communication
 - All micro-apps can communicate with each other using container names
@@ -507,6 +734,34 @@ micro_proxy status
 
 # Use docker command to view
 docker ps -a
+```
+
+### Port Conflict Issues
+
+If you encounter port occupied errors:
+
+```bash
+# Check port usage
+sudo lsof -i :80
+sudo lsof -i :8080
+
+# Modify nginx_host_port in proxy-config.yml
+nginx_host_port: 8080  # Change to another unoccupied port
+```
+
+### Volumes Mount Issues
+
+If you encounter volumes mount failures:
+
+```bash
+# Check if host path exists
+ls -la ./data
+
+# Check mount point inside container
+docker exec <container-name> ls -la /app/data
+
+# View container details
+docker inspect <container-name> | grep -A 10 Mounts
 ```
 
 ## Project Structure

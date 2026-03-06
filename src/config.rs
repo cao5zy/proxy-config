@@ -57,6 +57,18 @@ pub struct AppConfig {
     /// - 对于 Internal 类型：必须配置，指向包含 Dockerfile 的文件夹路径
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+
+    /// Docker volumes 映射配置（可选）
+    /// 用于将宿主机目录或文件挂载到容器中
+    /// 格式为字符串数组，每个字符串表示一个映射关系
+    /// 支持以下格式：
+    ///   - "宿主机路径:容器路径"（读写挂载）
+    ///   - "宿主机路径:容器路径:ro"（只读挂载）
+    ///   - "宿主机路径:容器路径:rw"（读写挂载，默认）
+    /// 示例：
+    ///   - ["./data:/app/data", "./config:/app/config:ro"]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub docker_volumes: Vec<String>,
 }
 
 /// 主配置结构
@@ -275,6 +287,14 @@ impl ProxyConfig {
                 }
             }
 
+            // 验证 docker_volumes 配置
+            if !app.docker_volumes.is_empty() {
+                log::debug!("应用 '{}' 配置了 {} 个 volumes 映射", app.name, app.docker_volumes.len());
+                for volume in &app.docker_volumes {
+                    log::debug!("  - {}", volume);
+                }
+            }
+
             log::debug!("应用 '{}' 配置验证通过", app.name);
         }
 
@@ -421,6 +441,7 @@ app_type: internal
                     description: None,
                     nginx_extra_config: None,
                     path: None,
+                    docker_volumes: vec![],
                 },
                 AppConfig {
                     name: "test-app".to_string(), // 重复名称
@@ -431,6 +452,7 @@ app_type: internal
                     description: None,
                     nginx_extra_config: None,
                     path: None,
+                    docker_volumes: vec![],
                 },
             ],
         };
@@ -462,6 +484,7 @@ app_type: internal
                 description: None,
                 nginx_extra_config: None,
                 path: None,
+                docker_volumes: vec![],
             }],
         };
 
@@ -491,6 +514,7 @@ app_type: internal
                 description: None,
                 nginx_extra_config: None,
                 path: None,
+                docker_volumes: vec![],
             }],
         };
 
@@ -527,6 +551,7 @@ app_type: internal
                     description: None,
                     nginx_extra_config: None,
                     path: None,
+                    docker_volumes: vec![],
                 },
                 AppConfig {
                     name: "redis".to_string(),
@@ -537,6 +562,7 @@ app_type: internal
                     description: None,
                     nginx_extra_config: None,
                     path: Some(redis_path.to_str().unwrap().to_string()),
+                    docker_volumes: vec![],
                 },
             ],
         };
@@ -568,6 +594,7 @@ app_type: internal
                     description: None,
                     nginx_extra_config: None,
                     path: None,
+                    docker_volumes: vec![],
                 },
                 AppConfig {
                     name: "redis".to_string(),
@@ -578,6 +605,7 @@ app_type: internal
                     description: None,
                     nginx_extra_config: None,
                     path: Some("./services/redis".to_string()),
+                    docker_volumes: vec![],
                 },
             ],
         };
@@ -617,6 +645,7 @@ app_type: internal
                     description: None,
                     nginx_extra_config: None,
                     path: None,
+                    docker_volumes: vec![],
                 },
                 AppConfig {
                     name: "redis".to_string(),
@@ -627,6 +656,7 @@ app_type: internal
                     description: None,
                     nginx_extra_config: None,
                     path: Some("./services/redis".to_string()),
+                    docker_volumes: vec![],
                 },
             ],
         };
@@ -659,6 +689,7 @@ app_type: internal
                     description: None,
                     nginx_extra_config: None,
                     path: None,
+                    docker_volumes: vec![],
                 },
                 AppConfig {
                     name: "redis".to_string(),
@@ -669,6 +700,7 @@ app_type: internal
                     description: None,
                     nginx_extra_config: None,
                     path: Some("./services/redis".to_string()),
+                    docker_volumes: vec![],
                 },
             ],
         };
@@ -676,5 +708,36 @@ app_type: internal
         let internal_apps = config.get_internal_apps();
         assert_eq!(internal_apps.len(), 1);
         assert_eq!(internal_apps[0].name, "redis");
+    }
+
+    #[test]
+    fn test_docker_volumes_deserialize() {
+        let yaml = r#"
+name: test-app
+routes: ["/"]
+container_name: test-container
+container_port: 80
+app_type: static
+docker_volumes:
+  - "./data:/app/data"
+  - "./config:/app/config:ro"
+"#;
+        let app: AppConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(app.docker_volumes.len(), 2);
+        assert_eq!(app.docker_volumes[0], "./data:/app/data");
+        assert_eq!(app.docker_volumes[1], "./config:/app/config:ro");
+    }
+
+    #[test]
+    fn test_docker_volumes_default() {
+        let yaml = r#"
+name: test-app
+routes: ["/"]
+container_name: test-container
+container_port: 80
+app_type: static
+"#;
+        let app: AppConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(app.docker_volumes.len(), 0);
     }
 }

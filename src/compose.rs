@@ -322,6 +322,29 @@ fn generate_app_service(
         log::debug!("应用 '{}' 没有环境变量文件", app.name);
     }
 
+    // 如果有 volumes 配置，添加 volumes 字段
+    if !app.docker_volumes.is_empty() {
+        log::debug!(
+            "为应用 '{}' 添加 {} 个 volumes 映射",
+            app.name,
+            app.docker_volumes.len()
+        );
+        for volume in &app.docker_volumes {
+            log::debug!("  - {}", volume);
+        }
+        service.insert(
+            serde_yaml::Value::String("volumes".to_string()),
+            serde_yaml::Value::Sequence(
+                app.docker_volumes
+                    .iter()
+                    .map(|v| serde_yaml::Value::String(v.clone()))
+                    .collect(),
+            ),
+        );
+    } else {
+        log::debug!("应用 '{}' 没有配置 volumes 映射", app.name);
+    }
+
     // 根据应用类型添加额外配置
     match app.app_type {
         AppType::Static => {
@@ -431,6 +454,7 @@ mod tests {
                 description: None,
                 nginx_extra_config: None,
                 path: None,
+                docker_volumes: vec![],
             },
             AppConfig {
                 name: "api-service".to_string(),
@@ -441,6 +465,7 @@ mod tests {
                 description: None,
                 nginx_extra_config: None,
                 path: None,
+                docker_volumes: vec![],
             },
         ];
 
@@ -494,18 +519,17 @@ mod tests {
 
     #[test]
     fn test_generate_compose_config_with_ssl() {
-        let apps = vec![
-            AppConfig {
-                name: "main-app".to_string(),
-                routes: vec!["/".to_string()],
-                container_name: "main-container".to_string(),
-                container_port: 80,
-                app_type: AppType::Static,
-                description: None,
-                nginx_extra_config: None,
-                path: None,
-            },
-        ];
+        let apps = vec![AppConfig {
+            name: "main-app".to_string(),
+            routes: vec!["/".to_string()],
+            container_name: "main-container".to_string(),
+            container_port: 80,
+            app_type: AppType::Static,
+            description: None,
+            nginx_extra_config: None,
+            path: None,
+            docker_volumes: vec![],
+        }];
 
         let mut env_files = HashMap::new();
 
@@ -513,17 +537,19 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let cert_dir = temp_dir.path().to_str().unwrap();
         let domain = "example.com";
-        
+
         // 创建 .cer 文件
         std::fs::write(
             temp_dir.path().join(format!("{}.cer", domain)),
-            "fake cert"
-        ).unwrap();
+            "fake cert",
+        )
+        .unwrap();
         // 创建 .key 文件
         std::fs::write(
             temp_dir.path().join(format!("{}.key", domain)),
-            "fake key"
-        ).unwrap();
+            "fake key",
+        )
+        .unwrap();
 
         let config = generate_compose_config(
             &apps,
@@ -553,6 +579,7 @@ mod tests {
                 description: None,
                 nginx_extra_config: None,
                 path: None,
+                docker_volumes: vec![],
             },
             AppConfig {
                 name: "redis".to_string(),
@@ -563,6 +590,7 @@ mod tests {
                 description: None,
                 nginx_extra_config: None,
                 path: Some("./services/redis".to_string()),
+                docker_volumes: vec![],
             },
             AppConfig {
                 name: "api-service".to_string(),
@@ -573,6 +601,7 @@ mod tests {
                 description: None,
                 nginx_extra_config: None,
                 path: None,
+                docker_volumes: vec![],
             },
         ];
 
@@ -641,6 +670,7 @@ mod tests {
             description: None,
             nginx_extra_config: None,
             path: Some("./services/redis".to_string()),
+            docker_volumes: vec![],
         }];
 
         let mut env_files = HashMap::new();
@@ -686,5 +716,116 @@ mod tests {
 
         let content = std::fs::read_to_string(temp_file.path()).unwrap();
         assert_eq!(content, config);
+    }
+
+    #[test]
+    fn test_generate_compose_config_with_docker_volumes() {
+        let apps = vec![
+            AppConfig {
+                name: "main-app".to_string(),
+                routes: vec!["/".to_string()],
+                container_name: "main-container".to_string(),
+                container_port: 80,
+                app_type: AppType::Static,
+                description: None,
+                nginx_extra_config: None,
+                path: None,
+                docker_volumes: vec!["./data:/app/data".to_string(), "./config:/app/config:ro".to_string()],
+            },
+            AppConfig {
+                name: "redis".to_string(),
+                routes: vec![],
+                container_name: "redis-container".to_string(),
+                container_port: 6379,
+                app_type: AppType::Internal,
+                description: None,
+                nginx_extra_config: None,
+                path: Some("./services/redis".to_string()),
+                docker_volumes: vec!["./redis-data:/data".to_string()],
+            },
+        ];
+
+        let mut env_files = HashMap::new();
+        env_files.insert(
+            "main-app".to_string(),
+            "./micro-apps/main-app/.env".to_string(),
+        );
+        env_files.insert("redis".to_string(), "./services/redis/.env".to_string());
+
+        let config = generate_compose_config(
+            &apps,
+            "test-network",
+            8080,
+            &env_files,
+            "/var/www/html",
+            "/etc/nginx/certs",
+            &None,
+        )
+        .unwrap();
+
+        // 检查 main-container 的 volumes
+        assert!(config.contains("main-container:"));
+        assert!(config.contains("./data:/app/data"));
+        assert!(config.contains("./config:/app/config:ro"));
+
+        // 检查 redis-container 的 volumes
+        assert!(config.contains("redis-container:"));
+        assert!(config.contains("./redis-data:/data"));
+
+        // 检查 nginx 的 volumes（不应该包含应用的 volumes）
+        // nginx 只应该有 nginx.conf, web_root, cert_dir 三个挂载
+        assert!(config.contains("nginx:"));
+        // 验证 nginx 的 volumes 部分不包含应用的 volumes
+        // 通过检查 nginx 服务配置块来验证
+        let nginx_start = config.find("nginx:").unwrap();
+        let main_container_start = config.find("main-container:").unwrap();
+        let nginx_section = &config[nginx_start..main_container_start];
+        // nginx 的 volumes 应该只包含 nginx.conf, web_root, cert_dir
+        assert!(nginx_section.contains("./nginx.conf:/etc/nginx/nginx.conf:ro"));
+        assert!(nginx_section.contains("/var/www/html:/var/www/html"));
+        assert!(nginx_section.contains("/etc/nginx/certs:/etc/nginx/certs"));
+        // nginx 的 volumes 不应该包含应用的 volumes
+        assert!(!nginx_section.contains("./data:/app/data"));
+        assert!(!nginx_section.contains("./config:/app/config:ro"));
+    }
+
+    #[test]
+    fn test_generate_compose_config_without_docker_volumes() {
+        let apps = vec![AppConfig {
+            name: "main-app".to_string(),
+            routes: vec!["/".to_string()],
+            container_name: "main-container".to_string(),
+            container_port: 80,
+            app_type: AppType::Static,
+            description: None,
+            nginx_extra_config: None,
+            path: None,
+            docker_volumes: vec![],
+        }];
+
+        let mut env_files = HashMap::new();
+        env_files.insert(
+            "main-app".to_string(),
+            "./micro-apps/main-app/.env".to_string(),
+        );
+
+        let config = generate_compose_config(
+            &apps,
+            "test-network",
+            8080,
+            &env_files,
+            "/var/www/html",
+            "/etc/nginx/certs",
+            &None,
+        )
+        .unwrap();
+
+        // 检查 main-container 不应该有 volumes 字段
+        assert!(config.contains("main-container:"));
+        // 在 main-container 的配置块中不应该有 volumes
+        let main_container_start = config.find("main-container:").unwrap();
+        let next_service_start = config.find("redis-container:").unwrap_or(config.len());
+        let main_container_config = &config[main_container_start..next_service_start];
+        assert!(!main_container_config.contains("volumes:"));
     }
 }

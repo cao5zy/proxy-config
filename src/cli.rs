@@ -287,6 +287,12 @@ fn calculate_relative_path(base_path: &PathBuf, target_path: &PathBuf) -> Result
 fn execute_start(config: &ProxyConfig, force_rebuild: bool) -> Result<()> {
     log::info!("开始启动微应用...");
 
+    // 当 force_rebuild 为 true 时，启用 no_cache 以确保完全重建
+    let no_cache = force_rebuild;
+    if no_cache {
+        log::info!("强制重建模式已启用，将使用 --no-cache 参数构建镜像");
+    }
+
     // 1. 扫描微应用
     let micro_apps = discover_micro_apps(&config.scan_dirs)?;
     let discovered_names = get_micro_app_names(&micro_apps);
@@ -342,13 +348,14 @@ fn execute_start(config: &ProxyConfig, force_rebuild: bool) -> Result<()> {
                 script::execute_setup_script(setup_script, &micro_app.path)?;
             }
 
-            // 构建镜像
+            // 构建镜像（当 force_rebuild 为 true 时使用 no_cache）
             let image_name = format!("{}:latest", app_config.name);
             builder::build_image(
                 &image_name,
                 &micro_app.dockerfile,
                 &micro_app.path,
                 Some(&micro_app.env_file),
+                no_cache,
             )?;
 
             // 更新状态
