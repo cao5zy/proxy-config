@@ -1,0 +1,46 @@
+
+# micro-app.yml 示例
+# 将此文件复制到每个微应用目录下，并根据需要修改
+
+# 访问路径（static/api类型必需）
+# 支持多个路径配置
+routes: ["/"]
+
+# Docker容器名称（必需，全局唯一）
+# 在整个系统中不能重复
+container_name: "my-container"
+
+# 容器内部端口（必需）
+# 微应用监听的端口
+container_port: 80
+
+# 应用类型（必需）
+# 可选值: static, api, internal
+# - static: 静态网站
+# - api: API服务
+# - internal: 内部服务（如Redis、MySQL等，不需要nginx反向代理）
+app_type: "static"
+
+# 应用描述（可选）
+description: "我的微应用"
+
+# Docker volumes 映射（可选）
+# 用于将宿主机目录或文件挂载到容器中
+# 格式: "宿主机路径:容器路径" 或 "宿主机路径:容器路径:ro"（只读）
+docker_volumes:
+  - "./data:/app/data"           # 读写挂载
+  - "./config:/app/config:ro"    # 只读挂载
+
+# 额外的 nginx 配置（可选）
+# 仅对 static 和 api 类型有效
+# 可以添加自定义的 nginx 配置，如 CORS 头、超时设置等
+nginx_extra_config: |
+  # 添加CORS头
+  add_header 'Access-Control-Allow-Origin' '*' always;
+  add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+  add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization' always;
+  
+  # 自定义超时设置
+  proxy_connect_timeout 60s;
+  proxy_send_timeout 60s;
+  proxy_read_timeout 60s;

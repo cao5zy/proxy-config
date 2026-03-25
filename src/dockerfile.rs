@@ -81,6 +81,7 @@ pub fn has_expose_instruction<P: AsRef<std::path::Path>>(path: P) -> Result<bool
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
     use tempfile::NamedTempFile;
 
     #[test]

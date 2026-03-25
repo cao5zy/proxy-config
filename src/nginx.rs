@@ -1,3 +1,4 @@
+
 //! Nginx配置生成模块
 //!
 //! 负责根据配置生成nginx.conf
@@ -578,6 +579,7 @@ mod tests {
             nginx_extra_config: None,
             path: None,
             docker_volumes: vec![],
+            run_as_user: None,
         };
 
         let location = generate_location_config(&app, "/");
@@ -603,6 +605,7 @@ mod tests {
             nginx_extra_config: None,
             path: None,
             docker_volumes: vec![],
+            run_as_user: None,
         };
 
         let location = generate_location_config(&app, "/resume_app");
@@ -628,6 +631,7 @@ mod tests {
             nginx_extra_config: Some("add_header 'Access-Control-Allow-Origin' '*';".to_string()),
             path: None,
             docker_volumes: vec![],
+            run_as_user: None,
         };
 
         let location = generate_location_config(&app, "/api");
@@ -653,6 +657,7 @@ mod tests {
                 nginx_extra_config: None,
                 path: None,
                 docker_volumes: vec![],
+                run_as_user: None,
             },
             AppConfig {
                 name: "api-service".to_string(),
@@ -664,6 +669,7 @@ mod tests {
                 nginx_extra_config: None,
                 path: None,
                 docker_volumes: vec![],
+                run_as_user: None,
             },
         ];
 
@@ -735,6 +741,7 @@ mod tests {
                 nginx_extra_config: None,
                 path: None,
                 docker_volumes: vec![],
+                run_as_user: None,
             },
             AppConfig {
                 name: "api-service".to_string(),
@@ -746,6 +753,7 @@ mod tests {
                 nginx_extra_config: None,
                 path: None,
                 docker_volumes: vec![],
+                run_as_user: None,
             },
         ];
 
@@ -817,6 +825,7 @@ mod tests {
                 nginx_extra_config: None,
                 path: None,
                 docker_volumes: vec![],
+                run_as_user: None,
             },
             AppConfig {
                 name: "redis".to_string(),
@@ -828,6 +837,7 @@ mod tests {
                 nginx_extra_config: None,
                 path: Some("./services/redis".to_string()),
                 docker_volumes: vec![],
+                run_as_user: None,
             },
             AppConfig {
                 name: "api-service".to_string(),
@@ -839,6 +849,7 @@ mod tests {
                 nginx_extra_config: None,
                 path: None,
                 docker_volumes: vec![],
+                run_as_user: None,
             },
         ];
 
@@ -908,6 +919,7 @@ mod tests {
             nginx_extra_config: None,
             path: None,
             docker_volumes: vec![],
+            run_as_user: None,
         }];
 
         let config =
@@ -934,6 +946,7 @@ mod tests {
                 nginx_extra_config: None,
                 path: None,
                 docker_volumes: vec![],
+                run_as_user: None,
             },
             AppConfig {
                 name: "resume-app".to_string(),
@@ -945,6 +958,7 @@ mod tests {
                 nginx_extra_config: None,
                 path: None,
                 docker_volumes: vec![],
+                run_as_user: None,
             },
             AppConfig {
                 name: "api-service".to_string(),
@@ -956,6 +970,7 @@ mod tests {
                 nginx_extra_config: None,
                 path: None,
                 docker_volumes: vec![],
+                run_as_user: None,
             },
         ];
 
@@ -994,6 +1009,7 @@ mod tests {
             nginx_extra_config: None,
             path: None,
             docker_volumes: vec![],
+            run_as_user: None,
         };
 
         let location = generate_location_config(&app, "/resume_app");
@@ -1018,6 +1034,7 @@ mod tests {
             nginx_extra_config: None,
             path: None,
             docker_volumes: vec![],
+            run_as_user: None,
         };
 
         let location = generate_location_config(&app, "/api");
@@ -1042,6 +1059,7 @@ mod tests {
             nginx_extra_config: None,
             path: Some("./services/redis".to_string()),
             docker_volumes: vec![],
+            run_as_user: None,
         }];
 
         let config =

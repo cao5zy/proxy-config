@@ -1,3 +1,4 @@
+
 //! Docker Compose生成模块
 //!
 //! 负责生成docker-compose.yml文件
@@ -321,6 +322,15 @@ fn generate_app_service(
         log::debug!("应用 '{}' 没有环境变量文件", app.name);
     }
 
+    // 如果有 run_as_user 配置，添加 user 字段
+    if let Some(ref user) = app.run_as_user {
+        log::debug!("为应用 '{}' 添加运行用户: {}", app.name, user);
+        service.insert(
+            serde_yaml::Value::String("user".to_string()),
+            serde_yaml::Value::String(user.clone()),
+        );
+    }
+
     // 如果有 volumes 配置，添加 volumes 字段
     if !app.docker_volumes.is_empty() {
         log::debug!(
@@ -454,6 +464,7 @@ mod tests {
                 nginx_extra_config: None,
                 path: None,
                 docker_volumes: vec![],
+                run_as_user: None,
             },
             AppConfig {
                 name: "api-service".to_string(),
@@ -465,6 +476,7 @@ mod tests {
                 nginx_extra_config: None,
                 path: None,
                 docker_volumes: vec![],
+                run_as_user: None,
             },
         ];
 
@@ -528,6 +540,7 @@ mod tests {
             nginx_extra_config: None,
             path: None,
             docker_volumes: vec![],
+            run_as_user: None,
         }];
 
         let mut env_files = HashMap::new();
@@ -571,6 +584,7 @@ mod tests {
                 nginx_extra_config: None,
                 path: None,
                 docker_volumes: vec![],
+                run_as_user: None,
             },
             AppConfig {
                 name: "redis".to_string(),
@@ -582,6 +596,7 @@ mod tests {
                 nginx_extra_config: None,
                 path: Some("./services/redis".to_string()),
                 docker_volumes: vec![],
+                run_as_user: None,
             },
             AppConfig {
                 name: "api-service".to_string(),
@@ -593,6 +608,7 @@ mod tests {
                 nginx_extra_config: None,
                 path: None,
                 docker_volumes: vec![],
+                run_as_user: None,
             },
         ];
 
@@ -662,6 +678,7 @@ mod tests {
             nginx_extra_config: None,
             path: Some("./services/redis".to_string()),
             docker_volumes: vec![],
+            run_as_user: None,
         }];
 
         let mut env_files = HashMap::new();
@@ -725,6 +742,7 @@ mod tests {
                     "./data:/app/data".to_string(),
                     "./config:/app/config:ro".to_string(),
                 ],
+                run_as_user: None,
             },
             AppConfig {
                 name: "redis".to_string(),
@@ -736,6 +754,7 @@ mod tests {
                 nginx_extra_config: None,
                 path: Some("./services/redis".to_string()),
                 docker_volumes: vec!["./redis-data:/data".to_string()],
+                run_as_user: None,
             },
         ];
 
@@ -795,6 +814,7 @@ mod tests {
             nginx_extra_config: None,
             path: None,
             docker_volumes: vec![],
+            run_as_user: None,
         }];
 
         let mut env_files = HashMap::new();
@@ -821,5 +841,64 @@ mod tests {
         let next_service_start = config.find("redis-container:").unwrap_or(config.len());
         let main_container_config = &config[main_container_start..next_service_start];
         assert!(!main_container_config.contains("volumes:"));
+    }
+
+    #[test]
+    fn test_generate_compose_config_with_run_as_user() {
+        let apps = vec![
+            AppConfig {
+                name: "main-app".to_string(),
+                routes: vec!["/".to_string()],
+                container_name: "main-container".to_string(),
+                container_port: 80,
+                app_type: AppType::Static,
+                description: None,
+                nginx_extra_config: None,
+                path: None,
+                docker_volumes: vec![],
+                run_as_user: Some("1000:1000".to_string()),
+            },
+            AppConfig {
+                name: "redis".to_string(),
+                routes: vec![],
+                container_name: "redis-container".to_string(),
+                container_port: 6379,
+                app_type: AppType::Internal,
+                description: None,
+                nginx_extra_config: None,
+                path: Some("./services/redis".to_string()),
+                docker_volumes: vec![],
+                run_as_user: Some("999:999".to_string()),
+            },
+        ];
+
+        let env_files = HashMap::new();
+
+        let config = generate_compose_config(
+            &apps,
+            "test-network",
+            8080,
+            &env_files,
+            "/var/www/html",
+            "/etc/nginx/certs",
+            &None,
+        )
+        .unwrap();
+
+        // 打印配置以便调试
+        println!("=== 生成的配置 ===");
+        println!("{}", config);
+        println!("=== 配置结束 ===");
+
+        // 检查 main-container 的 user 配置
+        assert!(config.contains("main-container:"));
+        // 检查 user 字段是否存在（可能不带引号）
+        assert!(config.contains("user:"));
+        // 检查用户值是否正确（不带引号的检查）
+        assert!(config.contains("1000:1000"));
+
+        // 检查 redis-container 的 user 配置
+        assert!(config.contains("redis-container:"));
+        assert!(config.contains("999:999"));
     }
 }

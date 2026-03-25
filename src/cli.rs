@@ -1,15 +1,17 @@
+
 //! 命令行接口模块
 //!
 //! 负责提供命令行交互接口
 
 use crate::config::{AppType, ProxyConfig};
 use crate::container;
-use crate::discovery::{discover_micro_apps, get_micro_app_names, MicroApp};
+use crate::discovery::{discover_micro_apps, get_micro_app_names, to_app_configs, MicroApp};
 use crate::dockerfile;
 use crate::network::{generate_network_list, NetworkAddressInfo};
 use crate::nginx;
 use crate::script;
 use crate::state::{calculate_directory_hash, StateManager};
+use crate::volumes_config::VolumesConfig;
 use crate::{builder, compose, Error, Result};
 use clap::{Parser, Subcommand};
 use std::collections::HashMap;
@@ -220,11 +222,23 @@ fn get_micro_app_info(
                 }
             };
 
+            // 对于 Internal 类型，从 micro_app_config 加载配置
+            let micro_app_config = crate::micro_app_config::MicroAppConfig::from_file(path_buf.join("micro-app.yml"))?;
+            
+            // 加载卷配置
+            log::debug!("尝试加载 Internal 应用 '{}' 的卷配置", app_config.name);
+            let volumes_config = VolumesConfig::from_file(path_buf.join("micro-app.volumes.yml"))?;
+            
+            // 验证卷配置
+            volumes_config.validate(&app_config.name)?;
+            
             Ok(MicroApp {
                 name: app_config.name.clone(),
                 path: path_buf,
-                env_file,
+                config: micro_app_config,
+                volumes_config,
                 dockerfile,
+                env_file,
                 setup_script,
                 clean_script,
             })
@@ -289,22 +303,27 @@ fn execute_start(config: &ProxyConfig, force_rebuild: bool) -> Result<()> {
         log::info!("强制重建模式已启用，将使用 --no-cache 参数构建镜像");
     }
 
-    // 1. 扫描微应用
+    // 1. 扫描微应用（从 micro-app.yml 发现）
     let micro_apps = discover_micro_apps(&config.scan_dirs)?;
     let discovered_names = get_micro_app_names(&micro_apps);
 
-    // 2. 验证配置
-    config.validate(&discovered_names)?;
+    // 2. 转换为 AppConfig 并保存到动态配置
+    let apps = to_app_configs(&micro_apps);
+    config.save_apps(&apps)?;
+    log::info!("动态配置已保存到: {}", config.apps_config_path);
 
-    // 3. 创建Docker网络
+    // 3. 验证配置
+    config.validate(&apps, &discovered_names)?;
+
+    // 4. 创建Docker网络
     log::info!("创建Docker网络: {}", config.network_name);
     crate::network::create_network(&config.network_name)?;
 
-    // 4. 初始化状态管理器
+    // 5. 初始化状态管理器
     let mut state_manager = StateManager::new(&config.state_file_path);
     state_manager.load()?;
 
-    // 5. 处理每个配置的应用
+    // 6. 处理每个配置的应用
     let mut network_infos = Vec::new();
     let mut env_files = HashMap::new();
 
@@ -316,7 +335,7 @@ fn execute_start(config: &ProxyConfig, force_rebuild: bool) -> Result<()> {
 
     log::debug!("当前工作目录: {:?}", current_dir);
 
-    for app_config in &config.apps {
+    for app_config in &apps {
         log::info!("处理应用: {} ({:?})", app_config.name, app_config.app_type);
 
         // 获取微应用信息
@@ -391,20 +410,20 @@ fn execute_start(config: &ProxyConfig, force_rebuild: bool) -> Result<()> {
         network_infos.push(network_info);
     }
 
-    // 6. 生成nginx配置
+    // 7. 生成nginx配置
     log::info!("生成nginx配置...");
     let nginx_config = nginx::generate_nginx_config(
-        &config.apps,
+        &apps,
         &config.web_root,
         &config.cert_dir,
         &config.domain,
     )?;
     nginx::save_nginx_config(&nginx_config, &config.nginx_config_path)?;
 
-    // 7. 生成docker-compose配置
+    // 8. 生成docker-compose配置
     log::info!("生成docker-compose配置...");
     let compose_config = compose::generate_compose_config(
-        &config.apps,
+        &apps,
         &config.network_name,
         config.nginx_host_port,
         &env_files,
@@ -414,7 +433,7 @@ fn execute_start(config: &ProxyConfig, force_rebuild: bool) -> Result<()> {
     )?;
     compose::save_compose_config(&compose_config, &config.compose_config_path)?;
 
-    // 8. 生成网络地址列表
+    // 9. 生成网络地址列表
     log::info!("生成网络地址列表...");
     generate_network_list(
         &network_infos,
@@ -423,16 +442,16 @@ fn execute_start(config: &ProxyConfig, force_rebuild: bool) -> Result<()> {
         &config.network_list_path,
     )?;
 
-    // 9. 保存状态
+    // 10. 保存状态
     state_manager.save()?;
 
-    // 10. 停止并删除现有容器（确保使用最新配置）
+    // 11. 停止并删除现有容器（确保使用最新配置）
     log::info!("停止并删除现有容器...");
     let down_args = vec!["-f", &config.compose_config_path, "down"];
     // 忽略down命令的错误，因为可能容器不存在
     let _ = run_docker_compose(&down_args);
 
-    // 11. 启动容器
+    // 12. 启动容器
     log::info!("启动容器...");
     let compose_args = vec!["-f", &config.compose_config_path, "up", "-d"];
     run_docker_compose(&compose_args)?;
@@ -482,16 +501,19 @@ fn execute_clean(config: &ProxyConfig, force: bool, clean_network: bool) -> Resu
     let compose_args = vec!["-f", &config.compose_config_path, "down"];
     run_docker_compose(&compose_args)?;
 
+    // 加载动态配置以获取应用列表
+    let apps = config.load_apps()?;
+
     // 删除镜像
     log::info!("删除镜像...");
-    for app_config in &config.apps {
+    for app_config in &apps {
         let image_name = format!("{}:latest", app_config.name);
         builder::remove_image(&image_name)?;
     }
 
     // 执行clean脚本
     let micro_apps = discover_micro_apps(&config.scan_dirs)?;
-    for app_config in &config.apps {
+    for app_config in &apps {
         // 获取微应用信息（包括 Internal 类型）
         let micro_app = get_micro_app_info(app_config, &micro_apps)?;
 
@@ -509,6 +531,12 @@ fn execute_clean(config: &ProxyConfig, force: bool, clean_network: bool) -> Resu
         log::info!("状态文件已删除");
     }
 
+    // 删除动态配置文件
+    log::info!("删除动态配置文件...");
+    if std::fs::remove_file(&config.apps_config_path).is_ok() {
+        log::info!("动态配置文件已删除");
+    }
+
     // 删除网络
     if clean_network {
         log::info!("删除Docker网络...");
@@ -523,10 +551,13 @@ fn execute_clean(config: &ProxyConfig, force: bool, clean_network: bool) -> Resu
 fn execute_status(config: &ProxyConfig) -> Result<()> {
     log::info!("查看微应用状态...");
 
+    // 加载动态配置
+    let apps = config.load_apps()?;
+
     println!("=== 微应用状态 ===\n");
 
     // 检查容器状态
-    for app_config in &config.apps {
+    for app_config in &apps {
         let status = container::get_container_status(&app_config.container_name)?;
         let running = container::is_container_running(&app_config.container_name)?;
 
@@ -539,7 +570,7 @@ fn execute_status(config: &ProxyConfig) -> Result<()> {
 
     // 检查镜像状态
     println!("=== 镜像状态 ===\n");
-    for app_config in &config.apps {
+    for app_config in &apps {
         let image_name = format!("{}:latest", app_config.name);
         let exists = builder::image_exists(&image_name)?;
         println!(
@@ -560,12 +591,15 @@ fn execute_network(config: &ProxyConfig, output: Option<PathBuf>) -> Result<()> 
     let micro_apps = discover_micro_apps(&config.scan_dirs)?;
     let discovered_names = get_micro_app_names(&micro_apps);
 
+    // 转换为 AppConfig
+    let apps = to_app_configs(&micro_apps);
+
     // 验证配置
-    config.validate(&discovered_names)?;
+    config.validate(&apps, &discovered_names)?;
 
     // 生成网络地址信息
     let mut network_infos = Vec::new();
-    for app_config in &config.apps {
+    for app_config in &apps {
         let network_info = NetworkAddressInfo::new(
             app_config.name.clone(),
             app_config.container_name.clone(),

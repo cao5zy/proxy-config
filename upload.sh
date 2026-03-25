@@ -36,6 +36,7 @@ rsync -avz --delete \
     --exclude="node_modules/" \
     --exclude="Cargo.lock" \
     --exclude="proxy-config.yml" \
+    --exclude="docker-compose.yml" \
     . "$USERNAME@$REMOTE_ADDRESS:$REMOTE_DIR"
 
 # 检查rsync执行结果
