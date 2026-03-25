@@ -237,12 +237,12 @@ pub fn generate_network_list(
         "# Nginx统一入口: http://localhost:{}\n",
         nginx_host_port
     ));
-    content.push_str("\n");
+    content.push('\n');
 
     // 添加每个应用的信息
     for info in infos {
         content.push_str(&info.format());
-        content.push_str("\n");
+        content.push('\n');
     }
 
     // 添加微应用间通信示例

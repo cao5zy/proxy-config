@@ -1,4 +1,3 @@
-
 //! 命令行接口模块
 //!
 //! 负责提供命令行交互接口
@@ -76,9 +75,6 @@ enum Commands {
 /// 返回运行结果
 pub fn run(args: &[String]) -> Result<()> {
     let cli = Cli::parse_from(args);
-
-    // 初始化日志
-    let log_level = if cli.verbose { "debug" } else { "info" };
 
     // 使用dumbo_log初始化日志系统，同时输出到文件和控制台
     // 日志文件名与Cargo.toml中的包名称保持一致

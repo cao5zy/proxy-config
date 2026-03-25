@@ -5,7 +5,6 @@
 use crate::{Error, Result};
 use regex::Regex;
 use std::fs;
-use std::io::Write; // 添加这行导入
 
 /// Dockerfile解析结果
 #[derive(Debug, Clone)]

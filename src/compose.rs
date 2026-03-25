@@ -1,4 +1,3 @@
-
 //! Docker Compose生成模块
 //!
 //! 负责生成docker-compose.yml文件
@@ -539,17 +538,9 @@ mod tests {
         let domain = "example.com";
 
         // 创建 .cer 文件
-        std::fs::write(
-            temp_dir.path().join(format!("{}.cer", domain)),
-            "fake cert",
-        )
-        .unwrap();
+        std::fs::write(temp_dir.path().join(format!("{}.cer", domain)), "fake cert").unwrap();
         // 创建 .key 文件
-        std::fs::write(
-            temp_dir.path().join(format!("{}.key", domain)),
-            "fake key",
-        )
-        .unwrap();
+        std::fs::write(temp_dir.path().join(format!("{}.key", domain)), "fake key").unwrap();
 
         let config = generate_compose_config(
             &apps,
@@ -730,7 +721,10 @@ mod tests {
                 description: None,
                 nginx_extra_config: None,
                 path: None,
-                docker_volumes: vec!["./data:/app/data".to_string(), "./config:/app/config:ro".to_string()],
+                docker_volumes: vec![
+                    "./data:/app/data".to_string(),
+                    "./config:/app/config:ro".to_string(),
+                ],
             },
             AppConfig {
                 name: "redis".to_string(),

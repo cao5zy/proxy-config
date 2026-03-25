@@ -3,23 +3,45 @@
 
 [![Crates.io](https://img.shields.io/crates/v/micro_proxy)](https://crates.io/crates/micro_proxy)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
+[![Rust](https://www.rust-lang.org)](https://www.rust-lang.org)
 
-A tool for managing micro-apps, supporting Docker image building, container management, Nginx reverse proxy configuration, and more.
+A tool for managing micro-apps, supporting Docker image building, container management, Nginx reverse proxy configuration and more.
+
+For detailed information on micro-app development, please refer to **[Micro-app Development Guide](docs/micro-app-development.md)**.
+
 [Home](https://www.craftaidhub.com)
+
+## 📑 Documentation Index
+
+This documentation contains the following content to help you quickly get started with using micro_proxy:
+
+- [Features](#features) - Understand the core functions and advantages of the tool
+- [Installation](#installation) - How to install micro_proxy
+- [Quick Start](#quick-start) - A five-minute getting started guide
+- [Command Reference](#command-reference) - Detailed description of all available commands
+- [Configuration Guide](#configuration-guide) - Configuration file details and best practices
+- [SSL Certificate Configuration (Optional)](#ssl-certificate-configuration-optional) - HTTPS certificate setup guide
+- [Micro-app Development](#micro-app-development) - Micro-app development specifications and requirements
+- [Troubleshooting](#troubleshooting) - Common issues and solutions
+- [Project Structure](#project-structure) - Source code directory organization
+- [Technology Stack](#technology-stack) - Technologies and dependencies used
+- [License](#license) - Open source license
+- [Contributing](#contributing) - Ways to contribute to the project
+
+---
 
 ## Features
 
 - 🔍 **Automatic Micro-app Discovery** - Supports multiple scan directories to automatically discover micro-apps containing Dockerfiles
 - 🐳 **Docker Image Building** - Automatically builds Docker images for micro-apps with environment variable passing support
 - 🔄 **Container Lifecycle Management** - Start, stop, and clean up containers
-- 🌐 **Nginx Reverse Proxy** - Automatically generates Nginx configuration as a unified entry point
+- 🌐 **Nginx Reverse Proxy** - Automatically generates nginx configuration as a unified entry point
 - 📦 **Docker Compose Integration** - Generates docker-compose.yml files
 - 📊 **State Management** - Determines whether rebuild is needed based on directory hash
 - 🌍 **Network Management** - Unified Docker network management with inter-micro-app communication support
 - 📝 **Script Support** - Supports pre-build (setup.sh) and cleanup (clean.sh) scripts
 - 📋 **Network Address List** - Generates network address list for connectivity troubleshooting
-- 🔒 **Internal Service Support** - Supports internal services like Redis, MySQL that don't require Nginx proxy
+- 🔒 **Internal Service Support** - Supports internal services like Redis, MySQL that don't require nginx proxy
 - 🔐 **SSL Certificate Support** - Supports Let's Encrypt certificate requests with automatic ACME validation (optional)
 - 💾 **Volumes Mapping Support** - Supports configuring Docker volumes mapping for micro-apps to achieve data persistence
 
@@ -70,7 +92,7 @@ micro_proxy start -v
 
 ### 3. Access Applications
 
-All applications are accessed through the Nginx unified entry point, defaulting to port 80 (configurable via the `nginx_host_port` field in `micro_proxy.yml`):
+All applications are accessed through the Nginx unified entry point, defaulting to port 80 (configurable via the `nginx_host_port` field in `proxy-config.yml`):
 
 ```bash
 # Access main application
@@ -131,7 +153,7 @@ Options:
 - `-c, --config <path>`: Specify configuration file path (default: ./proxy-config.yml)
 - `-o, --output <path>`: Specify output file path (overrides configuration file setting)
 
-## Configuration
+## Configuration Guide
 
 ### Main Configuration File (proxy-config.yml)
 
@@ -162,24 +184,19 @@ nginx_host_port: 80
 
 # Web root directory (optional)
 # Used for storing ACME challenge files, supports Let's Encrypt certificate requests
-# acme.sh will create .well-known/acme-challenge/ directory in this directory
 # Default value: "/var/www/html"
-# Can be omitted if HTTPS certificates are not needed
-# web_root: "/var/www/html"
+web_root: "/var/www/html"
 
 # Certificate directory (optional)
 # Host directory for storing SSL certificates
-# acme.sh will deploy generated certificates to this directory
 # Default value: "/etc/nginx/certs"
-# Can be omitted if HTTPS certificates are not needed
-# cert_dir: "/etc/nginx/certs"
+cert_dir: "/etc/nginx/certs"
 
 # Domain name (optional)
 # Used for HTTPS configuration. If configured and certificate files exist, Nginx will enable HTTPS
 # Certificate file naming: {cert_dir}/{domain}.cer (or .crt)
 # Key file naming: {cert_dir}/{domain}.key
-# Example:
-# domain: "example.com"
+domain: "example.com"
 
 # Reverse proxy configuration
 apps:
@@ -207,6 +224,81 @@ apps:
     docker_volumes:                # Docker volumes mapping (optional)
       - "./redis-data:/data"       # Persist Redis data
 ```
+
+### SSL Certificate Configuration Guide
+
+> ℹ️ **Complete Guide**: For detailed information on SSL certificate configuration methods, working principles and FAQ, please refer to **[SSL Configuration Complete Guide](docs/ssl-configuration.md)**.
+
+micro_proxy supports Let's Encrypt certificate requests through ACME protocol for automatic domain ownership verification. Here's a brief overview:
+
+#### Three Required Configuration Items
+
+| Configuration Item | Purpose | Default Value |
+|--------|------|--------|
+| `web_root` | Directory for storing ACME challenge files, Let's Encrypt verifies domain ownership through this directory | `/var/www/html` |
+| `cert_dir` | Directory for storing SSL certificates and private keys, will be auto-mounted to Nginx container | `/etc/nginx/certs` |
+| `domain` | Domain name, used to derive certificate file path and Nginx configuration | None (optional) |
+
+#### Workflow
+
+1. **Apply for Certificate**: Use acme.sh to request certificate from Let's Encrypt
+2. **Place Certificate**: Certificate is saved to `cert_dir` directory
+3. **Mount Directory**: `docker-compose.yml` automatically mounts `cert_dir` to Nginx container
+4. **Enable HTTPS**: After detecting certificates, HTTPS configuration is auto-generated
+
+#### Quick Configuration Steps
+
+```bash
+# 1. Configure the following three items in proxy-config.yml
+web_root: "/var/www/html"
+cert_dir: "/etc/nginx/certs"
+domain: "your-domain.com"
+
+# 2. Ensure directories exist and have write permissions
+sudo mkdir -p /var/www/html
+sudo mkdir -p /etc/nginx/certs
+
+# 3. Use acme.sh to request certificate
+acme.sh --issue -d your-domain.com --webroot /var/www/html
+
+# 4. Deploy certificate
+acme.sh --install-cert -d your-domain.com \
+  --key-file /etc/nginx/certs/your-domain.com.key \
+  --fullchain-file /etc/nginx/certs/your-domain.com.cer
+
+# 5. Start services
+micro_proxy start
+```
+
+#### Mounting in docker-compose.yml
+
+After enabling SSL, the generated `docker-compose.yml` will include:
+
+```yaml
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"  # HTTPS port
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - /var/www/html:/var/www/html:ro      # web_root mount
+      - /etc/nginx/certs:/etc/nginx/certs:ro  # cert_dir mount
+```
+
+#### ⚠️ Common Questions
+
+- **Will web_root conflict with my applications?**  
+  No. The ACME location only matches the `/.well-known/acme-challenge/` path, which doesn't affect other routes.
+
+- **What is the purpose of cert_dir?**  
+  Ensures certificates are persistently stored on the host, won't be affected by container deletion, and can be accessed by Nginx container.
+
+- **Besides deriving file paths, what else does domain do?**  
+  It's also used for Nginx's `server_name` configuration and serves as the switch to automatically enable HTTPS.
+
+> 🔗 **Learn More**: [SSL Configuration Complete Guide](docs/ssl-configuration.md) includes detailed FAQ, troubleshooting and best practices.
 
 ### Docker Volumes Configuration Guide
 
@@ -262,7 +354,7 @@ docker_volumes:
 
 - **Path Separator**: Recommend using forward slash `/`, even on Windows systems
 
-#### Examples
+#### Reverse Proxy Configuration Example
 
 ```yaml
 apps:
@@ -299,7 +391,7 @@ apps:
 
 ### Port Configuration Guide
 
-micro_proxy uses Docker port mapping to map host ports to container internal ports. Understanding this mechanism is important for correct configuration.
+micro_proxy uses Docker port mapping mechanism to map host ports to container internal ports. Understanding this mechanism is important for correct configuration.
 
 #### Port Mapping Architecture
 
@@ -334,81 +426,12 @@ micro_proxy uses Docker port mapping to map host ports to container internal por
 
 | Configuration Item | Purpose | Example Value | Description |
 |-------------------|---------|---------------|-------------|
-| `nginx_host_port` | Host port | 8080 | Port users access, mapped to container internal via Docker port mapping |
+| `nginx_host_port` | Host port | 80 | Port users access, mapped to container internal via Docker port mapping |
 | `nginx.conf` `listen` | Container internal port | 80 | Fixed value, automatically generated by micro_proxy, no manual modification needed |
 
-#### Port Mapping Examples
-
-**Example 1: Using Default Port 80**
-
-```yaml
-# proxy-config.yml
-nginx_host_port: 80
-```
-
-Generated docker-compose.yml:
-```yaml
-services:
-  nginx:
-    ports:
-      - "80:80"    # Host port 80 mapped to container internal port 80
-```
-
-Access method:
-```bash
-curl http://localhost/
-```
-
-**Example 2: Using Custom Port 8080**
-
-```yaml
-# proxy-config.yml
-nginx_host_port: 8080
-```
-
-Generated docker-compose.yml:
-```yaml
-services:
-  nginx:
-    ports:
-      - "8080:80"  # Host port 8080 mapped to container internal port 80
-```
-
-Access method:
-```bash
-curl http://localhost:8080/
-```
-
-**Example 3: Enabling HTTPS**
-
-```yaml
-# proxy-config.yml
-nginx_host_port: 8080
-domain: "example.com"
-```
-
-Generated docker-compose.yml:
-```yaml
-services:
-  nginx:
-    ports:
-      - "8080:80"   # HTTP: Host port 8080 mapped to container internal port 80
-      - "443:443"   # HTTPS: Host port 443 mapped to container internal port 443
-```
-
-Access method:
-```bash
-# HTTP (will redirect to HTTPS)
-curl http://localhost:8080/
-
-# HTTPS
-curl https://example.com/
-```
-
-#### Important Notes
-
+#### Port Mapping Tips
 1. **nginx_host_port Only Affects Host Port**
-   - Modifying `nginx_host_port` only changes Docker port mapping
+   - Modifying `nginx_host_port` only changes Docker container port on the host
    - Does not affect `nginx.conf` `listen` directive
 
 2. **nginx.conf Ports Are Fixed**
@@ -468,238 +491,64 @@ The `scan_dirs` configuration specifies directories to scan for micro-apps, with
 - Directory name becomes the micro-app's default name
 - Avoid special characters and spaces
 
-## SSL Certificate Configuration (Optional)
+### 📁 Micro-app Directory Structure Guide
 
-> **Important Note: SSL certificate configuration is completely optional!**  
-> If HTTPS certificates are not configured, micro_proxy will still work normally, and HTTP (port 80) reverse proxy functionality remains unaffected.
+The `scan_dirs` directories defined in the configuration file will contain multiple micro-app subdirectories. **Each micro-app subdirectory must follow specific file structure specifications** to be correctly recognized and built.
 
-micro_proxy supports Let's Encrypt certificate requests through ACME protocol for automatic domain ownership verification.
+⚠️ **Important Notice**: For specific file structure requirements, key file naming conventions and build process details, please refer to the dedicated technical documentation:
 
-### Configuration Overview
+👉 **[View Full Specifications → Micro-app Development Guide](docs/micro-app-development.md)**
 
-1. **Decide if HTTPS is needed**: If not, completely ignore SSL-related configuration
-2. **Configure `proxy-config.yml`**: Set `web_root`, `cert_dir`, and `domain` fields
-3. **Request SSL certificate**: Use ACME.sh tool to request certificates
-4. **Verify configuration**: Ensure certificate files exist and Nginx can load them correctly
+**Core File Structure Overview:**
 
-### Detailed Configuration Guide
+| File/Directory | Required | Description |
+|-----------|----------|------|
+| `Dockerfile` | ✅ Required | Docker image build file, located in micro-app root directory |
+| `nginx.conf` | ⚠️ Conditional | SPA deployment required, custom Nginx configuration |
+| `setup.sh` | ❌ Optional | Pre-build execution script, for environment preparation |
+| `clean.sh` | ❌ Optional | Cleanup script, for removing build artifacts |
+| `.env` | ❌ Optional | Environment variables file |
+| `dist/` or `build/` | ⚠️ Conditional | Frontend project build output directory |
 
-For complete SSL configuration and certificate request guide, please refer to:
-
-- [ACME.sh Installation and Configuration Guide](docs/acme-installation.md)
-- [SSL Certificate Request Guide](docs/certificate-application.md)
-
-### ACME Validation Mechanism
-
-micro_proxy automatically adds ACME validation location to generated Nginx configuration:
-
-```nginx
-location /.well-known/acme-challenge/ {
-    root /var/www/html;
-    default_type "text/plain";
-}
-```
-
-**Important Notes:**
-- ACME location only matches `/.well-known/acme-challenge/` path
-- Does not affect other normal reverse proxy requests
-- HTTP reverse proxy works normally even without certificate configuration
-
-### Docker Compose Configuration
-
-Ensure Docker Compose configuration correctly mounts certificate directories:
-
-```yaml
-services:
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - /var/www/html:/var/www/html:ro
-      - /etc/nginx/certs:/etc/nginx/certs:ro
-    networks:
-      - proxy-network
-```
-
-### Important Notes
-
-1. **Domain Resolution**: Ensure domain is properly resolved to server IP
-2. **Firewall**: Ensure ports 80 and 443 are open
-3. **web_root Mounting**: Ensure Nginx container can access web_root directory
-4. **cert_dir Mounting**: Ensure Nginx container can access cert_dir directory
-5. **Auto-renewal**: acme.sh enables auto-renewal by default, no extra configuration needed
-6. **Optional Configuration**: If HTTPS is not needed, completely ignore `web_root`, `cert_dir`, and `domain` fields
-
-## Micro-app Development Guide
-
-### What is a Micro-app?
-
-A **micro-app** is an application organization approach inspired by microservice architecture. Each micro-app is an independent, deployable software unit packaged using Docker containerization technology. Multiple micro-apps can be combined to form a more complex system while maintaining their independence and maintainability.
-
-**Core Characteristics:**
-- **Independence**: Each micro-app has its own codebase, dependencies, and configuration
-- **Composability**: Multiple micro-apps can work together to build complex systems
-- **Sustainability**: Supports independent development, testing, deployment, and scaling
-- **Containerization**: Uses Docker for standardized deployment and runtime environments
-
-### Micro-app Directory Structure
-
-Each micro-app must be an independent folder, with the folder name serving as the micro-app's name.
-
-#### Frontend/Static Apps and API Services
-
-For micro-apps that need to be exposed externally through Nginx:
+**Standard Micro-app Directory Structure Example:**
 
 ```
 micro-apps/
-├── main-app/              # Folder name becomes micro-app name
-│   ├── Dockerfile         # Must be in project root
-│   ├── .env               # Environment variables file (optional)
-│   ├── setup.sh           # Optional: pre-build script
-│   ├── clean.sh           # Optional: cleanup script
-│   └── ...                # Other application files
-├── resume-app/
-│   ├── Dockerfile
-│   ├── .env
-│   └── ...
-└── api-service/
-    ├── Dockerfile
-    ├── .env
-    └── ...
+└── my-app/                    # Micro-app directory
+    ├── Dockerfile             # Docker build file (Required)
+    ├── nginx.conf             # Nginx config (SPA apps required)
+    ├── setup.sh               # Pre-build script (Optional)
+    ├── clean.sh               # Cleanup script (Optional)
+    ├── .env                   # Environment variables (Optional)
+    ├── package.json           # Node.js project config
+    ├── src/                   # Source code directory
+    └── dist/                  # Build output directory
 ```
 
-#### Internal Services
+> 💡 **Tip**: Different types of micro-apps (Static, Api, Internal) have different file requirements and configuration methods. For detailed specifications and best practices, refer to [Micro-app Development Guide](docs/micro-app-development.md).
 
-For services like Redis, MySQL that are only used for internal communication:
+## Micro-app Development
 
-```
-services/
-├── redis/                 # Service folder
-│   ├── Dockerfile         # Must be in project root
-│   ├── .env               # Environment variables file (optional)
-│   ├── setup.sh           # Optional: pre-build script
-│   ├── clean.sh           # Optional: cleanup script
-│   └── ...                # Other service files
-└── mysql/
-    ├── Dockerfile
-    ├── .env
-    └── ...
-```
+For detailed information on micro-app development, please refer to **[Micro-app Development Guide](docs/micro-app-development.md)**.
 
-### Application Types
+### Application Types Introduction
 
-micro_proxy supports three application types that determine how micro-apps are accessed and configured:
+micro_proxy supports three application types:
 
-#### 1. Static (Static Applications)
-- **Use Case**: Frontend applications, static websites
-- **Characteristics**: Enables browser caching, suitable for static resources
-- **Access Method**: Exposed externally through Nginx reverse proxy
-- **Configuration Example**:
-  ```yaml
-  - name: "frontend"
-    routes: ["/app"]
-    app_type: "static"
-    container_port: 80
-  ```
+| Type | Description | Access Method |
+|------|------|----------|
+| **Static** | Static applications (frontend pages) | Exposed externally through Nginx reverse proxy |
+| **API** | API services (backend interfaces) | Exposed externally through Nginx reverse proxy |
+| **Internal** | Internal services (databases etc.) | Only for internal micro-app communication |
 
-#### 2. API (API Services)
-- **Use Case**: Backend API services, microservices
-- **Characteristics**: Disables caching, preserves full request path
-- **Access Method**: Exposed externally through Nginx reverse proxy
-- **Configuration Example**:
-  ```yaml
-  - name: "backend"
-    routes: ["/api"]
-    app_type: "api"
-    container_port: 8080
-  ```
+### SPA Deployment Considerations
 
-#### 3. Internal (Internal Services)
-- **Use Case**: Redis, MySQL, MongoDB and other database services
-- **Characteristics**: Not exposed through Nginx, only for internal micro-app communication
-- **Access Method**: Other micro-apps access directly by container name
-- **Configuration Example**:
-  ```yaml
-  - name: "redis"
-    app_type: "internal"
-    container_port: 6379
-    path: "./services/redis"
-  ```
+Single Page Application (SPA) deployment requires special attention to the following points, see development guide document for details:
 
-### Development Workflow
-
-#### 1. Dockerfile Requirements
-- Must be placed in the micro-app project root
-- Recommended to use `EXPOSE` instruction to declare ports
-- Example:
-  ```dockerfile
-  FROM nginx:alpine
-  EXPOSE 80
-  COPY . /usr/share/nginx/html
-  ```
-
-#### 2. Environment Variable Configuration
-- Define build-time environment variables in `.env` file
-- These variables are passed to Docker during build
-- Example:
-  ```env
-  APP_PORT=80
-  ENV=production
-  ```
-
-#### 3. Automation Scripts
-- **setup.sh**: Executed before image building, for environment preparation
-- **clean.sh**: Executed during cleanup, for removing build artifacts
-- Scripts must be placed in the micro-app project root
-
-### Networking and Communication
-
-All micro-apps run in the same Docker network, supporting the following communication methods:
-
-#### External Services
-- Static and API type micro-apps are exposed externally through Nginx unified entry point
-- Access URL: `http://<host>:<nginx_host_port>/<configured-route>`
-
-#### Internal Communication
-- All micro-apps can communicate with each other using container names
-- Examples:
-  ```bash
-  # frontend accessing backend
-  curl http://backend:8080/api
-  
-  # backend accessing redis
-  redis-cli -h redis -p 6379
-  ```
-
-### Reverse Proxy Configuration
-
-micro_proxy automatically generates appropriate Nginx configuration based on application type:
-
-#### Static Type Path Handling
-- **Root Path** (`/`): Directly forwards requests
-- **Sub-path** (`/app`): Automatically removes path prefix
-  - Access `/app/index.html` → backend receives `/index.html`
-
-#### API Type Path Handling
-- **Preserves Full Path**: Does not modify request URI
-  - Access `/api/v1/users` → backend receives `/api/v1/users`
-
-### Custom Configuration
-
-Additional Nginx configuration can be added for Static and API type micro-apps:
-
-```yaml
-- name: "main-app"
-  routes: ["/"]
-  nginx_extra_config: |
-    add_header 'X-Custom-Header' 'value';
-    location /api {
-      proxy_pass http://backend:3000;
-    }
-```
+- ✅ Nginx configuration must include `try_files` directive
+- ✅ Dockerfile must copy custom `nginx.conf`
+- ✅ BASE_URL must end with forward slash for sub-path deployments
+- ✅ Force rebuild is required after modifying environment variables
 
 ## Troubleshooting
 
@@ -764,13 +613,35 @@ docker exec <container-name> ls -la /app/data
 docker inspect <container-name> | grep -A 10 Mounts
 ```
 
+### SSL Certificate Related Issues
+
+If HTTPS is not working:
+
+```bash
+# Check if certificate files exist
+ls -la /etc/nginx/certs/
+
+# Verify nginx configuration
+docker exec proxy-nginx nginx -t
+
+# View nginx error logs
+docker logs proxy-nginx | grep -i ssl
+
+# Manually test HTTPS connection
+curl -k https://your-domain.com
+```
+
+> ℹ️ **More Help**: SSL configuration troubleshooting can be found in [SSL Configuration Complete Guide](docs/ssl-configuration.md#troubleshooting)
+
 ## Project Structure
 
 ```
 proxy-config/
 ├── docs/
 │   ├── acme-installation.md     # ACME.sh Installation Guide
-│   └── certificate-application.md  # Certificate Request Guide
+│   ├── certificate-application.md  # Certificate Request Guide
+│   ├── ssl-configuration.md     # SSL Configuration Complete Guide
+│   └── micro-app-development.md  # Micro-app Development Guide
 ├── src/
 │   ├── main.rs          # Main entry point
 │   ├── lib.rs           # Library entry point

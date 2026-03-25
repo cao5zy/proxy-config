@@ -21,7 +21,7 @@ use std::path::Path;
 /// nginx.conf 中的 listen 端口固定为容器内部端口：
 /// - HTTP: 80
 /// - HTTPS: 443
-/// 宿主机端口映射由 docker-compose.yml 控制
+///   宿主机端口映射由 docker-compose.yml 控制
 pub fn generate_nginx_config(
     apps: &[AppConfig],
     web_root: &str,
@@ -60,14 +60,14 @@ pub fn generate_nginx_config(
     if ssl_enabled {
         log::info!("检测到SSL证书，启用HTTPS配置");
         // 生成HTTP server块（重定向到HTTPS + ACME验证）
-        config.push_str("\n");
+        config.push('\n');
         config.push_str(&generate_http_redirect_server_block(
             web_root,
             domain.as_ref().unwrap(), // unwrap is safe here because ssl_enabled is true
         ));
 
         // 生成HTTPS server块
-        config.push_str("\n");
+        config.push('\n');
         config.push_str(&generate_https_server_block(
             &nginx_apps,
             web_root,
@@ -77,11 +77,8 @@ pub fn generate_nginx_config(
     } else {
         log::info!("未检测到SSL证书，仅启用HTTP配置");
         // 生成HTTP server块（包含业务逻辑）
-        config.push_str("\n");
-        config.push_str(&generate_http_server_block(
-            &nginx_apps,
-            web_root,
-        ));
+        config.push('\n');
+        config.push_str(&generate_http_server_block(&nginx_apps, web_root));
     }
 
     // 闭合 http 块
@@ -245,10 +242,7 @@ fn generate_http_redirect_server_block(web_root: &str, domain: &str) -> String {
 ///
 /// # 注意
 /// listen 端口固定为 80（容器内部端口）
-fn generate_http_server_block(
-    apps: &[&AppConfig],
-    web_root: &str,
-) -> String {
+fn generate_http_server_block(apps: &[&AppConfig], web_root: &str) -> String {
     log::debug!("生成HTTP server配置块，监听端口: 80");
     generate_server_block_internal(apps, 80, web_root, false, None, None)
 }
@@ -294,11 +288,7 @@ fn generate_server_block_internal(
     cert_dir: Option<&str>,
     domain: Option<&str>,
 ) -> String {
-    log::debug!(
-        "生成server配置块，监听端口: {}, HTTPS: {}",
-        port,
-        is_https
-    );
+    log::debug!("生成server配置块，监听端口: {}, HTTPS: {}", port, is_https);
     log::debug!("web_root: {}", web_root);
 
     let mut server_config = String::new();
@@ -306,8 +296,8 @@ fn generate_server_block_internal(
     // SSL 配置
     let ssl_config = if is_https {
         let cert_dir = cert_dir.unwrap(); // safe unwrap
-        let domain = domain.unwrap();     // safe unwrap
-        
+        let domain = domain.unwrap(); // safe unwrap
+
         // 尝试确定证书文件扩展名
         let cert_ext = if Path::new(cert_dir).join(format!("{}.cer", domain)).exists() {
             ".cer"
@@ -678,7 +668,8 @@ mod tests {
         ];
 
         // 没有配置 domain，应该生成 HTTP 配置
-        let config = generate_nginx_config(&apps, "/var/www/html", "/etc/nginx/certs", &None).unwrap();
+        let config =
+            generate_nginx_config(&apps, "/var/www/html", "/etc/nginx/certs", &None).unwrap();
 
         // 打印完整配置以便调试
         println!("=== 完整生成的配置 (HTTP Only) ===");
@@ -762,20 +753,16 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let cert_dir = temp_dir.path().to_str().unwrap();
         let domain = "example.com";
-        
+
         // 创建 .cer 文件
-        std::fs::write(
-            temp_dir.path().join(format!("{}.cer", domain)),
-            "fake cert"
-        ).unwrap();
+        std::fs::write(temp_dir.path().join(format!("{}.cer", domain)), "fake cert").unwrap();
         // 创建 .key 文件
-        std::fs::write(
-            temp_dir.path().join(format!("{}.key", domain)),
-            "fake key"
-        ).unwrap();
+        std::fs::write(temp_dir.path().join(format!("{}.key", domain)), "fake key").unwrap();
 
         // 配置了 domain 且证书存在，应该生成 HTTPS 配置
-        let config = generate_nginx_config(&apps, "/var/www/html", cert_dir, &Some(domain.to_string())).unwrap();
+        let config =
+            generate_nginx_config(&apps, "/var/www/html", cert_dir, &Some(domain.to_string()))
+                .unwrap();
 
         // 打印完整配置以便调试
         println!("=== 完整生成的配置 (HTTPS) ===");
@@ -783,17 +770,17 @@ mod tests {
         println!("=== 配置结束 ===");
 
         assert!(config.contains("worker_processes auto;"));
-        
+
         // 应该包含 HTTP 重定向 server 块，监听容器内部端口 80
         assert!(config.contains("listen 80;"));
         assert!(!config.contains("listen 8080;"));
         assert!(config.contains("return 301 https://$host$request_uri;"));
-        
+
         // 应该包含 HTTPS server 块
         assert!(config.contains("listen 443 ssl;"));
         assert!(config.contains(&format!("ssl_certificate {}/{}.cer", cert_dir, domain)));
         assert!(config.contains(&format!("ssl_certificate_key {}/{}.key", cert_dir, domain)));
-        
+
         // 业务逻辑应该在 HTTPS server 块中
         assert!(config.contains("location /"));
         assert!(config.contains("location /api"));
@@ -801,11 +788,13 @@ mod tests {
         // 检查 ACME 验证 location 是否在 HTTP 块中
         // HTTP 块应该有 ACME 验证
         assert!(config.contains("location /.well-known/acme-challenge/"));
-        
+
         // HTTPS 块不应该有 ACME 验证 location (因为我们在 generate_https_server_block 中没有添加)
         // 但我们需要确认 ACME location 确实只在 HTTP 块中
         // 简单的检查：配置中应该只有一个 ACME location
-        let acme_count = config.matches("location /.well-known/acme-challenge/").count();
+        let acme_count = config
+            .matches("location /.well-known/acme-challenge/")
+            .count();
         assert_eq!(acme_count, 1, "应该只有一个 ACME location (在 HTTP 块中)");
 
         // 检查 server_name 是否正确设置为域名
@@ -853,7 +842,8 @@ mod tests {
             },
         ];
 
-        let config = generate_nginx_config(&apps, "/var/www/html", "/etc/nginx/certs", &None).unwrap();
+        let config =
+            generate_nginx_config(&apps, "/var/www/html", "/etc/nginx/certs", &None).unwrap();
 
         // 打印完整配置以便调试
         println!("=== 完整生成的配置 ===");
@@ -920,7 +910,8 @@ mod tests {
             docker_volumes: vec![],
         }];
 
-        let config = generate_nginx_config(&apps, "/var/www/html", "/etc/nginx/certs", &None).unwrap();
+        let config =
+            generate_nginx_config(&apps, "/var/www/html", "/etc/nginx/certs", &None).unwrap();
         // 当没有应用使用根路径时，应该有默认的404 location
         assert!(config.contains("return 404;"));
         // 应该包含 ACME 验证 location
@@ -968,7 +959,8 @@ mod tests {
             },
         ];
 
-        let config = generate_nginx_config(&apps, "/var/www/html", "/etc/nginx/certs", &None).unwrap();
+        let config =
+            generate_nginx_config(&apps, "/var/www/html", "/etc/nginx/certs", &None).unwrap();
 
         // 检查location顺序：/.well-known/acme-challenge/ 应该在最前面
         let acme_pos = config
@@ -1052,7 +1044,8 @@ mod tests {
             docker_volumes: vec![],
         }];
 
-        let config = generate_nginx_config(&apps, "/var/www/html", "/etc/nginx/certs", &None).unwrap();
+        let config =
+            generate_nginx_config(&apps, "/var/www/html", "/etc/nginx/certs", &None).unwrap();
 
         // 应该生成基本的 nginx 配置，但没有应用 location
         assert!(config.contains("worker_processes auto;"));
@@ -1075,7 +1068,8 @@ mod tests {
         // 测试 ACME 验证 location 的生成
         let apps = vec![];
 
-        let config = generate_nginx_config(&apps, "/custom/web/root", "/etc/nginx/certs", &None).unwrap();
+        let config =
+            generate_nginx_config(&apps, "/custom/web/root", "/etc/nginx/certs", &None).unwrap();
 
         // 应该包含 ACME 验证 location
         assert!(config.contains("location /.well-known/acme-challenge/"));

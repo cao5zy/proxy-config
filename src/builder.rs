@@ -1,10 +1,9 @@
-
 //! 镜像构建模块
 //!
 //! 负责构建微应用的Docker镜像
 
 use crate::{Error, Result};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 /// 构建Docker镜像

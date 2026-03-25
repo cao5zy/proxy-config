@@ -1,4 +1,3 @@
-
 //! 配置管理模块
 //!
 //! 负责读取和解析proxy-config的配置文件
@@ -289,7 +288,11 @@ impl ProxyConfig {
 
             // 验证 docker_volumes 配置
             if !app.docker_volumes.is_empty() {
-                log::debug!("应用 '{}' 配置了 {} 个 volumes 映射", app.name, app.docker_volumes.len());
+                log::debug!(
+                    "应用 '{}' 配置了 {} 个 volumes 映射",
+                    app.name,
+                    app.docker_volumes.len()
+                );
                 for volume in &app.docker_volumes {
                     log::debug!("  - {}", volume);
                 }

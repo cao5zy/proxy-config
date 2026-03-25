@@ -3,7 +3,7 @@
 //! 负责执行微应用的setup.sh和clean.sh脚本
 
 use crate::{Error, Result};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 /// 执行脚本

@@ -1,26 +1,49 @@
+
 # micro_proxy
 
 [![Crates.io](https://img.shields.io/crates/v/micro_proxy)](https://crates.io/crates/micro_proxy)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
+[![Rust](https://www.rust-lang.org)](https://www.rust-lang.org)
 
-一个用于管理微应用的工具，支持Docker镜像构建、容器管理、Nginx反向代理配置等功能。
+一个用于管理微应用的工具，支持 Docker 镜像构建、容器管理、Nginx 反向代理配置等功能。
+
+关于微应用开发的详细说明，请参阅 **[微应用开发专题](docs/micro-app-development.md)**。
+
 [Home](https://www.craftaidhub.com)
+
+## 📑 文档目录
+
+本文档包含以下内容，帮助您快速了解和使用 micro_proxy：
+
+- [功能特性](#功能特性) - 了解 tool 的核心功能和优势
+- [安装](#安装) - 如何安装 micro_proxy
+- [快速开始](#快速开始) - 五分钟上手指南
+- [命令说明](#命令说明) - 所有可用命令的详细说明
+- [配置说明](#配置说明) - 配置文件详解和最佳实践
+- [SSL 证书配置（可选）](#ssl-证书配置可选) - HTTPS 证书配置指南
+- [微应用开发](#微应用开发) - 微应用的开发规范和要求
+- [故障排查](#故障排查) - 常见问题和解决方案
+- [项目结构](#项目结构) - 源码目录组织
+- [技术栈](#技术栈) - 使用的技术和依赖
+- [许可证](#许可证) - 开源协议
+- [贡献](#贡献) - 参与项目的方式
+
+---
 
 ## 功能特性
 
-- 🔍 **自动发现微应用** - 支持多个扫描目录，自动发现包含Dockerfile的微应用
-- 🐳 **Docker镜像构建** - 自动构建微应用的Docker镜像，支持环境变量传递
+- 🔍 **自动发现微应用** - 支持多个扫描目录，自动发现包含 Dockerfile 的微应用
+- 🐳 **Docker 镜像构建** - 自动构建微应用的 Docker 镜像，支持环境变量传递
 - 🔄 **容器生命周期管理** - 启动、停止、清理容器
-- 🌐 **Nginx反向代理** - 自动生成nginx配置，作为统一入口
-- 📦 **Docker Compose集成** - 生成docker-compose.yml文件
-- 📊 **状态管理** - 基于目录hash判断是否需要重新构建
-- 🌍 **网络管理** - 统一管理Docker网络，支持微应用间通信
-- 📝 **脚本支持** - 支持预构建(setup.sh)和清理(clean.sh)脚本
+- 🌐 **Nginx 反向代理** - 自动生成 nginx 配置，作为统一入口
+- 📦 **Docker Compose 集成** - 生成 docker-compose.yml 文件
+- 📊 **状态管理** - 基于目录 hash 判断是否需要重新构建
+- 🌍 **网络管理** - 统一管理 Docker 网络，支持微应用间通信
+- 📝 **脚本支持** - 支持预构建 (setup.sh) 和清理 (clean.sh) 脚本
 - 📋 **网络地址列表** - 生成网络地址列表，便于排查连通性问题
-- 🔒 **内部服务支持** - 支持Redis、MySQL等不需要nginx代理的内部服务
-- 🔐 **SSL证书支持** - 支持Let's Encrypt证书申请，自动配置ACME验证（可选）
-- 💾 **Volumes映射支持** - 支持为微应用配置Docker volumes映射，实现数据持久化
+- 🔒 **内部服务支持** - 支持 Redis、MySQL 等不需要 nginx 代理的内部服务
+- 🔐 **SSL 证书支持** - 支持 Let's Encrypt 证书申请，自动配置 ACME 验证（可选）
+- 💾 **Volumes 映射支持** - 支持为微应用配置 Docker volumes 映射，实现数据持久化
 
 ## 安装
 
@@ -69,13 +92,13 @@ micro_proxy start -v
 
 ### 3. 访问应用
 
-所有应用通过Nginx统一入口访问，默认端口为80（可在 `proxy-config.yml` 配置文件中的 `nginx_host_port` 字段修改）：
+所有应用通过 Nginx 统一入口访问，默认端口为 80（可在 `proxy-config.yml` 配置文件中的 `nginx_host_port` 字段修改）：
 
 ```bash
 # 访问主应用
 curl http://localhost/
 
-# 访问API服务
+# 访问 API 服务
 curl http://localhost/api
 ```
 
@@ -109,7 +132,7 @@ micro_proxy clean [options]
 选项：
 - `-c, --config <path>`: 指定配置文件路径（默认：./proxy-config.yml）
 - `--force`: 强制清理，不询问确认
-- `--network`: 同时清理Docker网络
+- `--network`: 同时清理 Docker 网络
 
 ### status - 查看状态
 
@@ -139,10 +162,10 @@ micro_proxy network [options]
 scan_dirs:
   - "./micro-apps"
 
-# Nginx配置文件输出路径
+# Nginx 配置文件输出路径
 nginx_config_path: "./nginx.conf"
 
-# Docker Compose配置文件输出路径
+# Docker Compose 配置文件输出路径
 compose_config_path: "./docker-compose.yml"
 
 # 状态文件路径
@@ -151,32 +174,29 @@ state_file_path: "./proxy-config.state"
 # 网络地址列表输出路径
 network_list_path: "./network-addresses.txt"
 
-# Docker网络名称
+# Docker 网络名称
 network_name: "proxy-network"
 
-# Nginx监听的主机端口（统一入口）
-# 注意：这是宿主机端口，通过Docker端口映射到容器内部的80端口
-# 例如：设置为8080时，访问 http://localhost:8080 会映射到容器内部的80端口
+# Nginx 监听的主机端口（统一入口）
+# 注意：这是宿主机端口，通过 Docker 端口映射到容器内部的 80 端口
+# 例如：设置为 8080 时，访问 http://localhost:8080 会映射到容器内部的 80 端口
 nginx_host_port: 80
 
-# Web根目录（可选）
+# Web 根目录（可选）
 # 用于存放 ACME 验证文件，支持 Let's Encrypt 证书申请
-# 默认值: "/var/www/html"
-# 如果不需要配置 HTTPS 证书，可以不设置此字段
-# web_root: "/var/www/html"
+# 默认值："/var/www/html"
+web_root: "/var/www/html"
 
 # 证书目录（可选）
 # 主机上存放 SSL 证书的目录
-# 默认值: "/etc/nginx/certs"
-# 如果不需要配置 HTTPS 证书，可以不设置此字段
-# cert_dir: "/etc/nginx/certs"
+# 默认值："/etc/nginx/certs"
+cert_dir: "/etc/nginx/certs"
 
 # 域名（可选）
 # 用于配置 HTTPS。如果配置了此字段且证书文件存在，nginx 将启用 HTTPS
-# 证书文件命名规则: {cert_dir}/{domain}.cer (或 .crt)
-# 密钥文件命名规则: {cert_dir}/{domain}.key
-# 示例:
-# domain: "example.com"
+# 证书文件命名规则：{cert_dir}/{domain}.cer (或 .crt)
+# 密钥文件命名规则：{cert_dir}/{domain}.key
+domain: "example.com"
 
 # 反向代理配置
 apps:
@@ -185,12 +205,12 @@ apps:
     routes: ["/", "/api"]          # 访问路径
     container_name: "container"    # 容器名称
     container_port: 80             # 容器内部端口
-    app_type: "static"             # 应用类型: static, api 或 internal
+    app_type: "static"             # 应用类型：static, api 或 internal
     description: "应用描述"        # 可选
     docker_volumes:                # Docker volumes 映射（可选）
       - "./data:/app/data"         # 读写挂载
       - "./config:/app/config:ro"  # 只读挂载
-    nginx_extra_config: |          # 可选：额外的nginx配置（仅 static 和 api 有效）
+    nginx_extra_config: |          # 可选：额外的 nginx 配置（仅 static 和 api 有效）
       add_header 'X-Custom-Header' 'value';
 
   # Internal 类型：不需要 nginx 反向代理，仅用于微应用间内部通信
@@ -205,6 +225,81 @@ apps:
       - "./redis-data:/data"       # 持久化 Redis 数据
 ```
 
+### SSL 证书配置说明
+
+> ℹ️ **完整指南**：如需详细了解 SSL 证书的配置方法、工作原理和常见问题解答，请查阅 **[SSL 配置完整指南](docs/ssl-configuration.md)**。
+
+micro_proxy 支持 Let's Encrypt 证书申请，通过 ACME 协议自动验证域名所有权。以下是简要说明：
+
+#### 必需的三个配置项
+
+| 配置项 | 作用 | 默认值 |
+|--------|------|--------|
+| `web_root` | 用于存放 ACME 验证文件的目录，Let's Encrypt 通过此目录验证域名所有权 | `/var/www/html` |
+| `cert_dir` | 存放 SSL 证书和私钥的目录，会自动挂载到 Nginx 容器 | `/etc/nginx/certs` |
+| `domain` | 域名，用于推导证书文件路径和 Nginx 配置 | 无（可选） |
+
+#### 工作流程
+
+1. **申请证书**：使用 acme.sh 向 Let's Encrypt 申请证书
+2. **放置证书**：证书被保存到 `cert_dir` 目录
+3. **挂载目录**：`docker-compose.yml` 自动将 `cert_dir` 挂载到 Nginx 容器
+4. **启用 HTTPS**：检测到证书后，自动生成 HTTPS 配置
+
+#### 快速配置步骤
+
+```bash
+# 1. 在 proxy-config.yml 中配置以下三项
+web_root: "/var/www/html"
+cert_dir: "/etc/nginx/certs"
+domain: "your-domain.com"
+
+# 2. 确保目录存在并有写入权限
+sudo mkdir -p /var/www/html
+sudo mkdir -p /etc/nginx/certs
+
+# 3. 使用 acme.sh 申请证书
+acme.sh --issue -d your-domain.com --webroot /var/www/html
+
+# 4. 部署证书
+acme.sh --install-cert -d your-domain.com \
+  --key-file /etc/nginx/certs/your-domain.com.key \
+  --fullchain-file /etc/nginx/certs/your-domain.com.cer
+
+# 5. 启动服务
+micro_proxy start
+```
+
+#### docker-compose.yml 中的挂载
+
+启用 SSL 后，生成的 `docker-compose.yml` 中会包含：
+
+```yaml
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"  # HTTPS 端口
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - /var/www/html:/var/www/html:ro      # web_root 挂载
+      - /etc/nginx/certs:/etc/nginx/certs:ro  # cert_dir 挂载
+```
+
+#### ⚠️ 常见疑问
+
+- **web_root 会不会与我的应用冲突？**  
+  不会。ACME 验证 location 只匹配 `/.well-known/acme-challenge/` 路径，不影响其他路由。
+
+- **cert_dir 的作用是什么？**  
+  确保证书持久化存储在宿主机，不会被容器删除影响，并可被 Nginx 容器访问。
+
+- **domain 除了推导文件路径还有什么用？**  
+  还用于 Nginx 的 `server_name` 配置，以及自动启用 HTTPS 的开关。
+
+> 🔗 **查看更多**：[SSL 配置完整指南](docs/ssl-configuration.md) 包含详细的 FAQ、错误排查和最佳实践。
+
 ### Docker Volumes 配置说明
 
 `docker_volumes` 字段用于配置 Docker 容器的卷挂载，实现数据持久化和文件共享。
@@ -213,9 +308,9 @@ apps:
 
 ```yaml
 docker_volumes:
-  - "宿主机路径:容器路径"           # 读写挂载（默认）
-  - "宿主机路径:容器路径:ro"       # 只读挂载
-  - "宿主机路径:容器路径:rw"       # 读写挂载（显式指定）
+  - "宿主机路径：容器路径"           # 读写挂载（默认）
+  - "宿主机路径：容器路径:ro"       # 只读挂载
+  - "宿主机路径：容器路径:rw"       # 读写挂载（显式指定）
 ```
 
 #### 使用场景
@@ -259,7 +354,7 @@ docker_volumes:
 
 - **路径分隔符**：建议使用正斜杠 `/`，即使在 Windows 系统上
 
-#### 示例
+#### 反向代理配置示例
 
 ```yaml
 apps:
@@ -304,19 +399,19 @@ micro_proxy 使用 Docker 端口映射机制，将宿主机端口映射到容器
 ┌─────────────────────────────────────────────────────────────┐
 │                        宿主机                                │
 │                                                              │
-│  用户访问: http://localhost:8080                             │
+│  用户访问：http://localhost:8080                             │
 │         │                                                     │
 │         ▼                                                     │
 │  ┌─────────────────────────────────────────────────────┐    │
 │  │  Docker 端口映射 (8080:80)                          │    │
-│  │  nginx_host_port: 8080  ──映射──►  容器内部: 80     │    │
+│  │  nginx_host_port: 8080  ──映射──►  容器内部：80     │    │
 │  └─────────────────────────────────────────────────────┘    │
 │         │                                                     │
 │         ▼                                                     │
 │  ┌─────────────────────────────────────────────────────┐    │
 │  │              Nginx 容器                              │    │
 │  │                                                      │    │
-│  │  nginx.conf 中的 listen 指令:                        │    │
+│  │  nginx.conf 中的 listen 指令：                       │    │
 │  │    - HTTP:  listen 80;                               │    │
 │  │    - HTTPS: listen 443 ssl;                          │    │
 │  │                                                      │    │
@@ -331,81 +426,12 @@ micro_proxy 使用 Docker 端口映射机制，将宿主机端口映射到容器
 
 | 配置项 | 作用 | 示例值 | 说明 |
 |--------|------|--------|------|
-| `nginx_host_port` | 宿主机端口 | 8080 | 用户访问的端口，通过 Docker 端口映射到容器内部 |
+| `nginx_host_port` | 宿主机端口 | 80 | 用户访问的端口，通过 Docker 端口映射到容器内部 |
 | `nginx.conf` 中的 `listen` | 容器内部端口 | 80 | 固定值，由 micro_proxy 自动生成，无需手动修改 |
 
-#### 端口映射示例
-
-**示例 1：使用默认端口 80**
-
-```yaml
-# proxy-config.yml
-nginx_host_port: 80
-```
-
-生成的 docker-compose.yml：
-```yaml
-services:
-  nginx:
-    ports:
-      - "80:80"    # 宿主机80端口映射到容器内部80端口
-```
-
-访问方式：
-```bash
-curl http://localhost/
-```
-
-**示例 2：使用自定义端口 8080**
-
-```yaml
-# proxy-config.yml
-nginx_host_port: 8080
-```
-
-生成的 docker-compose.yml：
-```yaml
-services:
-  nginx:
-    ports:
-      - "8080:80"  # 宿主机8080端口映射到容器内部80端口
-```
-
-访问方式：
-```bash
-curl http://localhost:8080/
-```
-
-**示例 3：启用 HTTPS**
-
-```yaml
-# proxy-config.yml
-nginx_host_port: 8080
-domain: "example.com"
-```
-
-生成的 docker-compose.yml：
-```yaml
-services:
-  nginx:
-    ports:
-      - "8080:80"   # HTTP: 宿主机8080端口映射到容器内部80端口
-      - "443:443"   # HTTPS: 宿主机443端口映射到容器内部443端口
-```
-
-访问方式：
-```bash
-# HTTP (会重定向到 HTTPS)
-curl http://localhost:8080/
-
-# HTTPS
-curl https://example.com/
-```
-
-#### 重要提示
-
+#### 端口映射提示
 1. **nginx_host_port 只影响宿主机端口**
-   - 修改 `nginx_host_port` 只会改变 Docker 端口映射
+   - 修改 `nginx_host_port` 只会改变 Docker 容器在宿主机上的端口
    - 不会影响 `nginx.conf` 中的 `listen` 指令
 
 2. **nginx.conf 中的端口是固定的**
@@ -458,453 +484,71 @@ curl https://example.com/
   ./backend-apps/
   └── common/        # 与 frontend-apps 下的 common 重名
   ```
-  这种情况下，系统会报错：`发现重复的微应用名称: common`
+  这种情况下，系统会报错：`发现重复的微应用名称：common`
 
 **4. 目录命名建议**
 - 建议使用有意义的、唯一的目录名称
 - 目录名称将作为微应用的默认名称
 - 避免使用特殊字符和空格
 
-## SSL证书配置（可选）
+### 📁 微应用目录结构说明
 
-> **重要提示：SSL证书配置是完全可选的！**  
-> 如果不配置HTTPS证书，micro_proxy仍然可以正常运行，HTTP（80端口）的反向代理功能不受影响。
+配置文件中定义的 `scan_dirs` 目录将包含多个微应用子目录。**每个微应用子目录需要遵循特定的文件结构规范**才能被正确识别和构建。
 
-micro_proxy 支持 Let's Encrypt 证书申请，通过 ACME 协议自动验证域名所有权。
+⚠️ **重要提示**：微应用的具体文件结构要求、关键文件命名规范以及构建流程详情，请参阅专门的技术文档：
 
-### 配置步骤概览
+👉 **[查看详细规范 → 微应用开发专题](docs/micro-app-development.md)**
 
-1. **决定是否需要 HTTPS**：如果不需要，可以完全忽略 SSL 相关配置
-2. **配置 `proxy-config.yml`**：设置 `web_root`、`cert_dir` 和 `domain` 字段
-3. **申请 SSL 证书**：使用 ACME.sh 工具申请证书
-4. **验证配置**：确保证书文件存在且 Nginx 能正确加载
+**核心文件结构概览：**
 
-### 详细配置指南
+| 文件/目录 | 是否必需 | 说明 |
+|-----------|----------|------|
+| `Dockerfile` | ✅ 必需 | Docker 镜像构建文件，位于微应用根目录 |
+| `nginx.conf` | ⚠️ 条件 | SPA 部署时必需，自定义 Nginx 配置 |
+| `setup.sh` | ❌ 可选 | 构建前执行脚本，可用于环境准备 |
+| `clean.sh` | ❌ 可选 | 清理脚本，用于移除构建产物 |
+| `.env` | ❌ 可选 | 环境变量文件 |
+| `dist/` 或 `build/` | ⚠️ 条件 | 前端项目的构建输出目录 |
 
-完整的 SSL 配置和证书申请指南请参考以下文档：
-
-- [ACME.sh 安装与配置指南](docs/acme-installation.md)
-- [SSL 证书申请指南](docs/certificate-application.md)
-
-### ACME 验证机制
-
-micro_proxy 会在生成的 Nginx 配置中自动添加 ACME 验证 location：
-
-```nginx
-location /.well-known/acme-challenge/ {
-    root /var/www/html;
-    default_type "text/plain";
-}
-```
-
-**重要说明：**
-- ACME location 只匹配 `/.well-known/acme-challenge/` 路径
-- 不会影响其他正常的反向代理请求
-- 即使不配置证书，HTTP 反向代理仍然可以正常工作
-
-### Docker Compose 配置
-
-确保 Docker Compose 配置中正确挂载了证书目录：
-
-```yaml
-services:
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - /var/www/html:/var/www/html:ro
-      - /etc/nginx/certs:/etc/nginx/certs:ro
-    networks:
-      - proxy-network
-```
-
-### 注意事项
-
-1. **域名解析**：确保域名已正确解析到服务器 IP
-2. **防火墙**：确保 80 和 443 端口已开放
-3. **web_root 挂载**：确保 Nginx 容器可以访问 web_root 目录
-4. **cert_dir 挂载**：确保 Nginx 容器可以访问 cert_dir 目录
-5. **自动续期**：acme.sh 默认开启自动续期，无需额外配置
-6. **可选配置**：如果不配置 HTTPS，可以完全忽略 `web_root`、`cert_dir` 和 `domain` 字段
-
-## 微应用开发专题
-
-### 什么是微应用？
-
-**微应用**是借鉴微服务架构思想的一种应用组织方式。每个微应用都是一个独立的、可单独部署的软件单元，通过 Docker 容器化技术进行封装。多个微应用可以组合成一个更复杂的系统，同时保持各自的独立性和可维护性。
-
-**核心特点：**
-- **独立性**：每个微应用都有自己的代码库、依赖和配置
-- **可组合性**：多个微应用可以协同工作，构建复杂系统
-- **可持续性**：支持独立开发、测试、部署和扩展
-- **容器化**：通过 Docker 实现标准化的部署和运行环境
-
-### 微应用目录结构
-
-每个微应用都必须是一个独立的文件夹，文件夹名称即为微应用的名称。
-
-#### 前端/静态应用和API服务
-
-适用于需要通过 Nginx 对外提供服务的微应用：
+**标准微应用目录结构示例：**
 
 ```
 micro-apps/
-├── main-app/              # 文件夹名称即为微应用名称
-│   ├── Dockerfile         # 必须在项目根目录
-│   ├── .env               # 环境变量文件（可选）
-│   ├── setup.sh           # 可选：预构建脚本
-│   ├── clean.sh           # 可选：清理脚本
-│   └── ...                # 其他应用文件
-├── resume-app/
-│   ├── Dockerfile
-│   ├── .env
-│   └── ...
-└── api-service/
-    ├── Dockerfile
-    ├── .env
-    └── ...
+└── my-app/                    # 微应用目录
+    ├── Dockerfile             # Docker 构建文件（必需）
+    ├── nginx.conf             # Nginx 配置（SPA 应用必需）
+    ├── setup.sh               # 构建前脚本（可选）
+    ├── clean.sh               # 清理脚本（可选）
+    ├── .env                   # 环境变量（可选）
+    ├── package.json           # Node.js 项目配置
+    ├── src/                   # 源代码目录
+    └── dist/                  # 构建输出目录
 ```
 
-#### 内部服务
+> 💡 **提示**：不同类型的微应用（Static、Api、Internal）有不同的文件要求和配置方式，详细规范和最佳实践请参考 [微应用开发专题](docs/micro-app-development.md)。
 
-适用于 Redis、MySQL 等仅用于内部通信的服务：
+## 微应用开发
 
-```
-services/
-├── redis/                 # 服务文件夹
-│   ├── Dockerfile         # 必须在项目根目录
-│   ├── .env               # 环境变量文件（可选）
-│   ├── setup.sh           # 可选：预构建脚本
-│   ├── clean.sh           # 可选：清理脚本
-│   └── ...                # 其他服务文件
-└── mysql/
-    ├── Dockerfile
-    ├── .env
-    └── ...
-```
+关于微应用开发的详细说明，请参阅 **[微应用开发专题](docs/micro-app-development.md)**。
 
-### 应用类型
+### 应用类型简介
 
-micro_proxy 支持三种应用类型，决定了微应用的访问方式和配置：
+micro_proxy 支持三种应用类型：
 
-#### 1. Static（静态应用）
-- **适用场景**：前端应用、静态网站
-- **特点**：启用浏览器缓存，适合静态资源
-- **访问方式**：通过 Nginx 反向代理对外提供服务
-- **配置示例**：
-  ```yaml
-  - name: "frontend"
-    routes: ["/app"]
-    app_type: "static"
-    container_port: 80
-  ```
+| 类型 | 说明 | 访问方式 |
+|------|------|----------|
+| **Static** | 静态应用（前端页面） | 通过 Nginx 反向代理对外服务 |
+| **API** | API 服务（后端接口） | 通过 Nginx 反向代理对外服务 |
+| **Internal** | 内部服务（数据库等） | 仅用于微应用间内部通信 |
 
-#### 2. API（API服务）
-- **适用场景**：后端 API 服务、微服务
-- **特点**：禁用缓存，保留完整请求路径
-- **访问方式**：通过 Nginx 反向代理对外提供服务
-- **配置示例**：
-  ```yaml
-  - name: "backend"
-    routes: ["/api"]
-    app_type: "api"
-    container_port: 8080
-  ```
+### SPA 部署注意事项
 
-#### 3. Internal（内部服务）
-- **适用场景**：Redis、MySQL、MongoDB 等数据库服务
-- **特点**：不通过 Nginx 对外暴露，仅用于微应用间内部通信
-- **访问方式**：其他微应用通过容器名称直接访问
-- **配置示例**：
-  ```yaml
-  - name: "redis"
-    app_type: "internal"
-    container_port: 6379
-    path: "./services/redis"
-  ```
+单页应用（SPA）部署时需要特别注意以下几点，详见开发专题文档：
 
-### 静态网站应用（SPA）部署指南
-
-> ⚠️ **重要**：单页应用（SPA）部署有特殊要求，请仔细阅读以下内容，避免常见问题。
-
-#### 问题背景
-
-SPA 应用使用前端路由（如 Vue Router、React Router），URL 路径由前端 JavaScript 处理，而非服务器。如果服务器没有正确配置，直接访问或刷新非根路径页面会出现 **404 错误**。
-
-#### 常见错误示例
-
-```
-# 错误日志示例
-open() "/usr/share/nginx/html/feedback-list" failed (2: No such file or directory)
-GET //feedback-list HTTP/1.0" 404 555
-```
-
-#### 部署检查清单
-
-##### 1. Nginx 配置 - 必须包含 `try_files`
-
-SPA 应用必须在 Nginx 配置中添加 `try_files` 指令，将所有路由请求重定向到 `index.html`：
-
-```nginx
-# ✅ 正确配置
-server {
-    listen 80;
-    server_name localhost;
-    root /usr/share/nginx/html;
-    index index.html;
-
-    # 关键配置：SPA 路由回退
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # 静态资源缓存
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
-}
-```
-
-```nginx
-# ❌ 错误配置（缺少 try_files）
-server {
-    listen 80;
-    root /usr/share/nginx/html;
-    index index.html;
-    # 缺少 location / 配置，SPA 路由将无法工作
-}
-```
-
-##### 2. Dockerfile - 必须复制 Nginx 配置
-
-Dockerfile 必须将自定义的 `nginx.conf` 复制到容器中：
-
-```dockerfile
-# ✅ 正确配置
-FROM node:18-alpine as builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY . .
-RUN npm run build
-
-FROM nginx:alpine
-# 关键：复制自定义 nginx 配置
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=builder /app/dist /usr/share/nginx/html
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
-```
-
-```dockerfile
-# ❌ 错误配置（未复制 nginx.conf）
-FROM nginx:alpine
-# 缺少 COPY nginx.conf 指令，将使用 nginx 默认配置
-COPY --from=builder /app/dist /usr/share/nginx/html
-```
-
-##### 3. 子路径部署 - BASE_URL 必须以斜杠结尾
-
-如果应用部署在子路径下（如 `/resume_app/`），前端构建时的 base URL **必须以斜杠结尾**：
-
-```env
-# ✅ 正确配置
-VITE_BASE_URL=/resume_app/
-
-# ❌ 错误配置（缺少结尾斜杠，会导致路由生成 //path 的错误路径）
-VITE_BASE_URL=/resume_app
-```
-
-**为什么必须以斜杠结尾？**
-- Vite 的 `base` 配置要求以斜杠开头和结尾
-- 缺少结尾斜杠会导致路由拼接错误，生成 `//feedback-list` 这样的双斜杠路径
-- 这会导致 Nginx 无法正确匹配路由
-
-##### 4. 环境变量修改后必须强制重新构建
-
-修改 `.env` 文件后，Docker 可能使用构建缓存，导致环境变量未更新。**必须强制重新构建**：
-
-```bash
-# 方法 1：删除镜像后重新构建
-docker rmi <image-name>
-docker build -t <image-name> .
-
-# 方法 2：使用 --no-cache 参数
-docker build --no-cache -t <image-name> .
-
-# 方法 3：使用 micro_proxy 强制重建
-micro_proxy start --force-rebuild
-```
-
-**为什么需要强制重建？**
-- Vite 环境变量是在**构建时**注入的，不是运行时
-- Docker 构建缓存会跳过未变化的层
-- 修改 `.env` 后如果不强制重建，容器运行的仍是旧构建产物
-
-#### 完整部署示例
-
-以下是一个完整的 Vue3 SPA 应用部署示例：
-
-**项目结构：**
-```
-my-spa-app/
-├── Dockerfile
-├── nginx.conf
-├── .env
-├── package.json
-├── vite.config.ts
-└── src/
-    └── ...
-```
-
-**nginx.conf：**
-```nginx
-server {
-    listen 80;
-    server_name localhost;
-    root /usr/share/nginx/html;
-    index index.html;
-
-    # Gzip 压缩
-    gzip on;
-    gzip_vary on;
-    gzip_min_length 1024;
-    gzip_types text/plain text/css text/xml text/javascript application/x-javascript application/xml+rss application/javascript application/json;
-
-    # SPA 路由回退
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # 静态资源缓存
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
-}
-```
-
-**Dockerfile：**
-```dockerfile
-# 构建阶段
-FROM node:18-alpine as builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY . .
-RUN npm run build
-
-# 运行阶段
-FROM nginx:alpine
-# 复制自定义 nginx 配置（关键！）
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-# 复制构建产物
-COPY --from=builder /app/dist /usr/share/nginx/html
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
-```
-
-**.env（子路径部署）：**
-```env
-# 必须以斜杠结尾！
-VITE_BASE_URL=/my-app/
-```
-
-**vite.config.ts：**
-```typescript
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '')
-  return {
-    base: env.VITE_BASE_URL,  // 从环境变量读取
-    // ... 其他配置
-  }
-})
-```
-
-#### 故障排查
-
-| 问题现象 | 可能原因 | 解决方案 |
-|---------|---------|---------|
-| 刷新页面 404 | Nginx 缺少 `try_files` | 添加 `try_files $uri $uri/ /index.html;` |
-| 路由显示 `//path` | BASE_URL 缺少结尾斜杠 | 修改 `.env` 中的 `VITE_BASE_URL=/app/` |
-| 修改 .env 后未生效 | Docker 使用了构建缓存 | 使用 `--no-cache` 或删除镜像重建 |
-| 静态资源 404 | Dockerfile 未复制 nginx.conf | 添加 `COPY nginx.conf /etc/nginx/conf.d/default.conf` |
-
-### 开发工作流
-
-#### 1. Dockerfile 要求
-- 必须放在微应用项目根目录
-- 建议使用 `EXPOSE` 指令声明端口
-- 示例：
-  ```dockerfile
-  FROM nginx:alpine
-  EXPOSE 80
-  COPY . /usr/share/nginx/html
-  ```
-
-#### 2. 环境变量配置
-- 在 `.env` 文件中定义构建时环境变量
-- 这些变量会在构建时传递给 Docker
-- 示例：
-  ```env
-  APP_PORT=80
-  ENV=production
-  ```
-
-#### 3. 自动化脚本
-- **setup.sh**：在构建镜像前执行，用于准备环境
-- **clean.sh**：在清理时执行，用于清理构建产物
-- 脚本必须放在微应用项目根目录
-
-### 网络与通信
-
-所有微应用运行在同一个 Docker 网络中，支持以下通信方式：
-
-#### 对外服务
-- Static 和 API 类型的微应用通过 Nginx 统一入口对外提供服务
-- 访问地址：`http://<host>:<nginx_host_port>/<configured-route>`
-
-#### 内部通信
-- 所有微应用可以通过容器名称相互访问
-- 示例：
-  ```bash
-  # frontend 访问 backend
-  curl http://backend:8080/api
-  
-  # backend 访问 redis
-  redis-cli -h redis -p 6379
-  ```
-
-### 反向代理配置
-
-micro_proxy 会根据应用类型自动生成合适的 Nginx 配置：
-
-#### Static 类型路径处理
-- **根路径** (`/`)：直接转发请求
-- **子路径** (`/app`)：自动移除路径前缀
-  - 访问 `/app/index.html` → 后端收到 `/index.html`
-
-#### API 类型路径处理
-- **保留完整路径**：不修改请求 URI
-  - 访问 `/api/v1/users` → 后端收到 `/api/v1/users`
-
-### 自定义配置
-
-可以为 Static 和 API 类型的微应用添加额外的 Nginx 配置：
-
-```yaml
-- name: "main-app"
-  routes: ["/"]
-  nginx_extra_config: |
-    add_header 'X-Custom-Header' 'value';
-    location /api {
-      proxy_pass http://backend:3000;
-    }
-```
+- ✅ Nginx 配置必须包含 `try_files` 指令
+- ✅ Dockerfile 必须复制自定义的 `nginx.conf`
+- ✅ 子路径部署时 BASE_URL 必须以斜杠结尾
+- ✅ 修改环境变量后需要强制重新构建
 
 ## 故障排查
 
@@ -917,7 +561,7 @@ micro_proxy start -v
 # 查看容器日志
 docker logs <container-name>
 
-# 查看nginx日志
+# 查看 nginx 日志
 docker logs proxy-nginx
 ```
 
@@ -937,7 +581,7 @@ cat network-addresses.txt
 # 查看所有容器状态
 micro_proxy status
 
-# 使用docker命令查看
+# 使用 docker 命令查看
 docker ps -a
 ```
 
@@ -969,13 +613,35 @@ docker exec <container-name> ls -la /app/data
 docker inspect <container-name> | grep -A 10 Mounts
 ```
 
+### SSL 证书相关问题
+
+如果 HTTPS 不工作：
+
+```bash
+# 检查证书文件是否存在
+ls -la /etc/nginx/certs/
+
+# 验证 nginx 配置
+docker exec proxy-nginx nginx -t
+
+# 查看 nginx 错误日志
+docker logs proxy-nginx | grep -i ssl
+
+# 手动测试 HTTPS 连接
+curl -k https://your-domain.com
+```
+
+> ℹ️ **更多帮助**：SSL 配置疑难解答请参见 [SSL 配置完整指南](docs/ssl-configuration.md#故障排查)
+
 ## 项目结构
 
 ```
 proxy-config/
 ├── docs/
 │   ├── acme-installation.md     # ACME.sh 安装指南
-│   └── certificate-application.md  # 证书申请指南
+│   ├── certificate-application.md  # 证书申请指南
+│   ├── ssl-configuration.md     # SSL 配置完整指南
+│   └── micro-app-development.md  # 微应用开发专题
 ├── src/
 │   ├── main.rs          # 主入口
 │   ├── lib.rs           # 库入口
@@ -984,12 +650,12 @@ proxy-config/
 │   ├── discovery.rs     # 应用发现
 │   ├── builder.rs       # 镜像构建
 │   ├── container.rs     # 容器管理
-│   ├── nginx.rs         # Nginx配置生成
-│   ├── compose.rs       # Docker Compose生成
+│   ├── nginx.rs         # Nginx 配置生成
+│   ├── compose.rs       # Docker Compose 生成
 │   ├── state.rs         # 状态管理
 │   ├── script.rs        # 脚本执行
 │   ├── network.rs       # 网络管理
-│   ├── dockerfile.rs    # Dockerfile解析
+│   ├── dockerfile.rs    # Dockerfile 解析
 │   └── error.rs         # 错误定义
 ├── Cargo.toml           # 项目配置
 ├── proxy-config.yml.example  # 配置文件示例
@@ -1009,4 +675,4 @@ proxy-config/
 
 ## 贡献
 
-欢迎提交Issue和Pull Request！
+欢迎提交 Issue 和 Pull Request！
