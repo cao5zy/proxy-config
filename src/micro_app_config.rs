@@ -30,6 +30,13 @@ pub struct MicroAppConfig {
     /// 额外的 nginx 配置（可选）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nginx_extra_config: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proxy_connect_timeout: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proxy_read_timeout: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proxy_send_timeout: Option<u64>,
 }
 
 impl MicroAppConfig {
@@ -146,6 +153,12 @@ nginx_extra_config: |
             app_type: "static".to_string(),
             description: None,
             nginx_extra_config: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
         };
 
         let result = config.validate("test-app");
@@ -161,6 +174,12 @@ nginx_extra_config: |
             app_type: "static".to_string(),
             description: None,
             nginx_extra_config: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
         };
 
         let result = config.validate("test-app");
@@ -177,6 +196,12 @@ nginx_extra_config: |
             app_type: "static".to_string(),
             description: None,
             nginx_extra_config: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
         };
 
         let result = config.validate("test-app");
@@ -193,6 +218,12 @@ nginx_extra_config: |
             app_type: "invalid".to_string(),
             description: None,
             nginx_extra_config: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
         };
 
         let result = config.validate("test-app");
@@ -209,6 +240,12 @@ nginx_extra_config: |
             app_type: "static".to_string(),
             description: None,
             nginx_extra_config: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
         };
 
         let result = config.validate("test-app");
@@ -225,6 +262,12 @@ nginx_extra_config: |
             app_type: "internal".to_string(),
             description: None,
             nginx_extra_config: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
         };
 
         // internal 类型有 routes 应该只是警告，不报错

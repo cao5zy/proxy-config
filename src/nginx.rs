@@ -493,6 +493,10 @@ fn generate_location_config(app: &AppConfig, route: &str) -> String {
             let proxy_pass_url =
                 format!("http://${{{}}}:{}", upstream_host_var, app.container_port);
 
+            let connect_timeout = app.proxy_connect_timeout.unwrap_or(60);
+            let send_timeout = app.proxy_send_timeout.unwrap_or(60);
+            let read_timeout = app.proxy_read_timeout.unwrap_or(60);
+
             location.push_str(&format!(
                 r#"        # API服务: {}
         location {} {{
@@ -503,15 +507,15 @@ fn generate_location_config(app: &AppConfig, route: &str) -> String {
             proxy_set_header X-Forwarded-Proto $scheme;
 
             # API超时设置
-            proxy_connect_timeout 60s;
-            proxy_send_timeout 60s;
-            proxy_read_timeout 60s;
+            proxy_connect_timeout {}s;
+            proxy_send_timeout {}s;
+            proxy_read_timeout {}s;
 
             # 禁用API缓存
             expires off;
             add_header Cache-Control "no-cache, no-store, must-revalidate";
 "#,
-                app.name, route, proxy_pass_url
+                app.name, route, proxy_pass_url, connect_timeout, send_timeout, read_timeout
             ));
 
             // 添加额外的nginx配置
@@ -580,6 +584,12 @@ mod tests {
             path: None,
             docker_volumes: vec![],
             run_as_user: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
         };
 
         let location = generate_location_config(&app, "/");
@@ -606,6 +616,12 @@ mod tests {
             path: None,
             docker_volumes: vec![],
             run_as_user: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
         };
 
         let location = generate_location_config(&app, "/resume_app");
@@ -632,6 +648,12 @@ mod tests {
             path: None,
             docker_volumes: vec![],
             run_as_user: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
         };
 
         let location = generate_location_config(&app, "/api");
@@ -658,6 +680,12 @@ mod tests {
                 path: None,
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
             AppConfig {
                 name: "api-service".to_string(),
@@ -670,6 +698,12 @@ mod tests {
                 path: None,
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
         ];
 
@@ -742,6 +776,12 @@ mod tests {
                 path: None,
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
             AppConfig {
                 name: "api-service".to_string(),
@@ -754,6 +794,12 @@ mod tests {
                 path: None,
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
         ];
 
@@ -826,6 +872,12 @@ mod tests {
                 path: None,
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
             AppConfig {
                 name: "redis".to_string(),
@@ -838,6 +890,12 @@ mod tests {
                 path: Some("./services/redis".to_string()),
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
             AppConfig {
                 name: "api-service".to_string(),
@@ -850,6 +908,12 @@ mod tests {
                 path: None,
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
         ];
 
@@ -920,6 +984,12 @@ mod tests {
             path: None,
             docker_volumes: vec![],
             run_as_user: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
         }];
 
         let config =
@@ -947,6 +1017,12 @@ mod tests {
                 path: None,
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
             AppConfig {
                 name: "resume-app".to_string(),
@@ -959,6 +1035,12 @@ mod tests {
                 path: None,
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
             AppConfig {
                 name: "api-service".to_string(),
@@ -971,6 +1053,12 @@ mod tests {
                 path: None,
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
         ];
 
@@ -1010,6 +1098,12 @@ mod tests {
             path: None,
             docker_volumes: vec![],
             run_as_user: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
         };
 
         let location = generate_location_config(&app, "/resume_app");
@@ -1035,6 +1129,12 @@ mod tests {
             path: None,
             docker_volumes: vec![],
             run_as_user: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
         };
 
         let location = generate_location_config(&app, "/api");
@@ -1060,6 +1160,12 @@ mod tests {
             path: Some("./services/redis".to_string()),
             docker_volumes: vec![],
             run_as_user: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
         }];
 
         let config =

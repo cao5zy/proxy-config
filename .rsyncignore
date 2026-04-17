@@ -1,0 +1,12 @@
+.git
+target
+*.log
+node_modules
+Cargo.lock
+proxy-config.yml
+docker-compose.yml
+.qoder
+docs
+assets
+*.md
+

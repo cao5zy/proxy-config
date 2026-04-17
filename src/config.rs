@@ -65,6 +65,18 @@ pub struct AppConfig {
     /// - 从 micro-app.volumes.yml 加载
     #[serde(skip_serializing_if = "Option::is_none")]
     pub run_as_user: Option<String>,
+
+    /// 代理连接超时（秒，可选）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proxy_connect_timeout: Option<u64>,
+
+    /// 代理读取超时（秒，可选）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proxy_read_timeout: Option<u64>,
+
+    /// 代理发送超时（秒，可选）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proxy_send_timeout: Option<u64>,
 }
 
 /// 动态生成的应用配置结构
@@ -462,6 +474,12 @@ app_type: internal
                 path: None,
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
             AppConfig {
                 name: "test-app".to_string(), // 重复名称
@@ -474,6 +492,12 @@ app_type: internal
                 path: None,
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
         ];
 
@@ -509,6 +533,12 @@ app_type: internal
             path: None,
             docker_volumes: vec![],
             run_as_user: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
         }];
 
         let config = ProxyConfig {
@@ -542,6 +572,12 @@ app_type: internal
             path: None,
             docker_volumes: vec![],
             run_as_user: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
         }];
 
         let config = ProxyConfig {
@@ -582,6 +618,12 @@ app_type: internal
                 path: None,
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
             AppConfig {
                 name: "redis".to_string(),
@@ -594,6 +636,12 @@ app_type: internal
                 path: Some(redis_path.to_str().unwrap().to_string()),
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
         ];
 
@@ -629,6 +677,12 @@ app_type: internal
                 path: None,
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
             AppConfig {
                 name: "redis".to_string(),
@@ -641,6 +695,12 @@ app_type: internal
                 path: Some("./services/redis".to_string()),
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
         ];
 
@@ -684,6 +744,12 @@ app_type: internal
                 path: None,
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
             AppConfig {
                 name: "redis".to_string(),
@@ -696,6 +762,12 @@ app_type: internal
                 path: Some("./services/redis".to_string()),
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
         ];
 
@@ -732,6 +804,12 @@ app_type: internal
                 path: None,
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
             AppConfig {
                 name: "redis".to_string(),
@@ -744,6 +822,12 @@ app_type: internal
                 path: Some("./services/redis".to_string()),
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
         ];
 
@@ -814,6 +898,12 @@ app_type: static
                 path: Some("./apps/app1".to_string()),
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
             AppConfig {
                 name: "app2".to_string(),
@@ -826,6 +916,9 @@ app_type: static
                 path: Some("./apps/app2".to_string()),
                 docker_volumes: vec!["./data:/app/data".to_string()],
                 run_as_user: Some("999:999".to_string()),
+                proxy_connect_timeout: None,
+                proxy_read_timeout: None,
+                proxy_send_timeout: None,
             },
         ];
 

@@ -140,6 +140,9 @@ impl MicroApp {
             path: Some(self.path.to_str().unwrap_or("").to_string()),
             docker_volumes: self.volumes_config.to_docker_compose_volumes(),
             run_as_user: self.volumes_config.run_as_user.clone(),
+            proxy_connect_timeout: self.config.proxy_connect_timeout,
+            proxy_read_timeout: self.config.proxy_read_timeout,
+            proxy_send_timeout: self.config.proxy_send_timeout,
         }
     }
 }

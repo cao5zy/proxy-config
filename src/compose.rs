@@ -465,6 +465,12 @@ mod tests {
                 path: None,
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
             AppConfig {
                 name: "api-service".to_string(),
@@ -477,6 +483,12 @@ mod tests {
                 path: None,
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
         ];
 
@@ -541,6 +553,12 @@ mod tests {
             path: None,
             docker_volumes: vec![],
             run_as_user: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
         }];
 
         let mut env_files = HashMap::new();
@@ -585,6 +603,12 @@ mod tests {
                 path: None,
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
             AppConfig {
                 name: "redis".to_string(),
@@ -597,6 +621,12 @@ mod tests {
                 path: Some("./services/redis".to_string()),
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
             AppConfig {
                 name: "api-service".to_string(),
@@ -609,6 +639,12 @@ mod tests {
                 path: None,
                 docker_volumes: vec![],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
         ];
 
@@ -679,6 +715,12 @@ mod tests {
             path: Some("./services/redis".to_string()),
             docker_volumes: vec![],
             run_as_user: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
         }];
 
         let mut env_files = HashMap::new();
@@ -743,6 +785,12 @@ mod tests {
                     "./config:/app/config:ro".to_string(),
                 ],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
             AppConfig {
                 name: "redis".to_string(),
@@ -755,6 +803,12 @@ mod tests {
                 path: Some("./services/redis".to_string()),
                 docker_volumes: vec!["./redis-data:/data".to_string()],
                 run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
             },
         ];
 
@@ -815,6 +869,12 @@ mod tests {
             path: None,
             docker_volumes: vec![],
             run_as_user: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
         }];
 
         let mut env_files = HashMap::new();
@@ -857,6 +917,9 @@ mod tests {
                 path: None,
                 docker_volumes: vec![],
                 run_as_user: Some("1000:1000".to_string()),
+                proxy_connect_timeout: None,
+                proxy_read_timeout: None,
+                proxy_send_timeout: None,
             },
             AppConfig {
                 name: "redis".to_string(),
@@ -869,6 +932,9 @@ mod tests {
                 path: Some("./services/redis".to_string()),
                 docker_volumes: vec![],
                 run_as_user: Some("999:999".to_string()),
+                proxy_connect_timeout: None,
+                proxy_read_timeout: None,
+                proxy_send_timeout: None,
             },
         ];
 

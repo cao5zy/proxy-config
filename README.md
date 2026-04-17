@@ -230,6 +230,11 @@ docker_volumes:
 # 额外的 nginx 配置（可选，仅 static 和 api 有效）
 nginx_extra_config: |
   add_header 'X-Custom-Header' 'value';
+
+# 代理超时设置（可选，仅 api 类型有效，单位：秒，默认 60）
+proxy_connect_timeout: 60
+proxy_read_timeout: 60
+proxy_send_timeout: 60
 ```
 
 **详细配置说明**请参阅 **[微应用开发专题](docs/micro-app-development.md)**。
