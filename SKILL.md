@@ -1,8 +1,19 @@
+---
+name: micro-app-development
+description: >
+  Use when creating, configuring, or deploying micro-apps on the micro_proxy
+  platform. Covers micro-app.yml, Dockerfile, volume configuration, SPA
+  deployment, Nginx customization, and all three app types (Static, API,
+  Internal). Triggered by questions about micro-app creation, configuration
+  files, app types, volume permissions, SPA 404 errors, Docker build,
+  internal services, and Nginx setup.
+---
+
 # micro-app-development
 
 ## Purpose
 
-本文档为 AI 编程助手（如 Qoder、Claude Code、Cursor、Windsurf、GitHub Copilot、Cline 等）提供 **micro_proxy** 平台微应用开发所需的完整知识库和行为指南。AI 在回答用户关于 micro-app 创建、配置、部署相关问题时，应参考本文档的内容。
+本文档为 AI 编程助手（如 Qoder、OpenCode、Claude Code、Cursor、Windsurf、GitHub Copilot、Cline 等）提供 **micro_proxy** 平台微应用开发所需的完整知识库和行为指南。AI 在回答用户关于 micro-app 创建、配置、部署相关问题时，应参考本文档的内容。
 
 ## Platform Compatibility
 
@@ -11,6 +22,7 @@
 | Platform | Usage |
 |----------|-------|
 | **Qoder** | 放置为 `SKILL.md`，按 `When to Activate` 章节自动触发 |
+| **OpenCode** | 放置为 `.opencode/skills/<name>/SKILL.md`，自动发现 |
 | **Claude Code** | 引用为 `CLAUDE.md` 或通过 `-p` 参数加载 |
 | **Cursor** | 放置为 `.cursorrules` 或项目规则 |
 | **Windsurf** | 放置为 `.windsurfrules` |
