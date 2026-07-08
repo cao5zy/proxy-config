@@ -195,6 +195,7 @@ run_as_user: "1000:1000"  # Container also runs as UID 1000
 - If no volumes are needed, you can still configure `run_as_user` alone for security hardening
 - If using `run_as_user`, it's recommended to also configure matching `permissions.uid/gid`
 - Permission setup happens before container start, requiring appropriate host privileges
+- **Path consistency:** The `target` path determines where data is persisted on the container filesystem. Ensure that any data paths configured in `.env` or other config files (e.g., SQLite database path, upload directory, log file location) are located **under** a volume target. Otherwise data will be stored inside the container's ephemeral layer and lost on container restart.
 
 ---
 
@@ -407,6 +408,7 @@ Check the generated configurations for:
 - `container_port` matching the application's listen port
 - Permission security (warn on uid/gid = 0)
 - SPA deployment checklist items
+- **Volume target path consistency** — If `micro-app.volumes.yml` defines volumes, verify that any file storage paths in other configurations (especially `.env`) fall **under** a volume `target` directory. E.g., volume target `/data` and `.env` contains `DATABASE_PATH=/data/db.sqlite` ✓; `DATABASE_PATH=/app/db.sqlite` ✗ (path outside volume). Consider all common path-like env vars (`*_PATH`, `*_DIR`, `*_FILE`, `*_STORAGE`, etc.). Warn if a data path falls outside any volume mount.
 
 ### 4. Explain, Don't Just Output
 When providing configuration examples, explain:
@@ -449,7 +451,8 @@ Use the error tables in this document to help users diagnose issues.
    ├── container_name globally unique
    ├── routes match app type requirements
    ├── container_port matches app listen port
-   └── No security risks (root uid/gid warning)
+   ├── No security risks (root uid/gid warning)
+   └── Volume target ↔ .env path consistency (data paths must fall under a volume target)
 
 4. Guide deployment
    ├── Run `micro_proxy start`
