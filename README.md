@@ -207,7 +207,7 @@ domain: "example.com"
 每个微应用目录下必须包含 `micro-app.yml` 文件，用于配置该微应用的属性：
 
 ```yaml
-# 访问路径（static/api类型必需）
+# 访问路径（static/api类型必需；不能以 `/` 结尾，根路由 `/` 除外）
 routes: ["/", "/api"]
 
 # Docker容器名称（必需，全局唯一）
@@ -302,6 +302,38 @@ micro_proxy 使用 Docker 端口映射机制，将宿主机端口映射到容器
 - 目录名称将作为微应用的默认名称（`app.name`）
 - 所有微应用的 `container_name` 必须全局唯一
 
+### 名称推导逻辑
+
+微应用有多个关键名称，它们的来源不同：
+
+| 名称 | 来源 | 推导规则 | 示例 |
+|------|------|----------|------|
+| **app.name** | 目录名（自动推导） | 直接子目录：目录名即 `app.name`；嵌套目录：路径组件用 `_` 拼接 | `my_app`、`group_my_app` |
+| **Docker image name** | 从 `app.name` 推导 | `{app.name}:latest` | `my_app:latest` |
+| **nginx 变量名** | 从 `app.name` 推导 | `{app.name}_upstream_host` | `$my_app_upstream_host` |
+| **container_name** | 用户在 `micro-app.yml` 中配置 | 不推导，直接配置，需全局唯一 | `my-container` |
+
+**推导链路：**
+
+```
+目录名 (my_app/)
+  ├──→ app.name = "my_app"
+  │      ├──→ Docker image = "my_app:latest"
+  │      └──→ nginx 变量 = "$my_app_upstream_host"
+  │
+  └── micro-app.yml
+         └── container_name = "my-container"  (用户自行配置，独立于目录名)
+```
+
+**目录命名约束：**
+
+由于 `app.name` 用于构造 nginx 变量名，而 nginx 变量名只允许 `[A-Za-z0-9_]` 且不能以数字开头，因此目录名必须遵守相同规则：
+
+- ✅ `my_app`、`group_my_app`、`App123`
+- ❌ `my-app`（含 `-`）、`123app`（数字开头）、`my.app`（含 `.`）
+
+> 使用不合规的目录名会导致 `micro_proxy start` 验证失败并报错。
+
 ## 微应用开发
 
 关于微应用开发的详细说明，请参阅 **[微应用开发专题](docs/micro-app-development.md)**。
@@ -314,7 +346,7 @@ micro_proxy 支持三种应用类型：
 |------|------|----------|
 | **Static** | 静态应用（前端页面） | 通过 Nginx 反向代理对外服务 |
 | **API** | API 服务（后端接口） | 通过 Nginx 反向代理对外服务 |
-| **Internal** | 内部服务（数据库等） | 仅用于微应用间内部通信 |
+| **Internal** | 内部服务（数据库、MinIO 等） | 无 routes：仅容器间通信；有 routes：通过 Nginx 对外代理（自动剥离路由前缀） |
 
 ### 标准微应用目录结构
 

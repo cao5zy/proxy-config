@@ -9,4 +9,5 @@ docker-compose.yml
 docs
 assets
 *.md
+data
 

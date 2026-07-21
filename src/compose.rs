@@ -233,19 +233,20 @@ fn generate_nginx_service(
         serde_yaml::Value::Mapping(networks),
     );
 
-    // 依赖关系：nginx仅依赖于非 Internal 类型的应用服务
-    let non_internal_apps: Vec<String> = apps
+    // 依赖关系：nginx 依赖于所有需要 nginx 代理的应用服务
+    // （包括配置了 routes 的 Internal 类型）
+    let nginx_depends_on: Vec<String> = apps
         .iter()
-        .filter(|app| app.app_type != AppType::Internal)
+        .filter(|app| app.needs_nginx())
         .map(|app| app.container_name.clone())
         .collect();
 
-    if !non_internal_apps.is_empty() {
-        let count = non_internal_apps.len();
+    if !nginx_depends_on.is_empty() {
+        let count = nginx_depends_on.len();
         service.insert(
             serde_yaml::Value::String("depends_on".to_string()),
             serde_yaml::Value::Sequence(
-                non_internal_apps
+                nginx_depends_on
                     .into_iter()
                     .map(serde_yaml::Value::String)
                     .collect(),
@@ -676,7 +677,7 @@ mod tests {
         assert!(config.contains("redis-container:"));
         assert!(config.contains("api-container:"));
 
-        // 检查依赖关系：nginx 不应该依赖于 redis
+        // 检查依赖关系：nginx 不应该依赖于 redis（无 routes 的 internal）
         assert!(config.contains("depends_on:"));
         assert!(config.contains("- main-container"));
         assert!(config.contains("- api-container"));

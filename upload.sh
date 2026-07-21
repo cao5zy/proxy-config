@@ -31,6 +31,7 @@ echo "开始同步上传文件到 $USERNAME@$REMOTE_ADDRESS:$REMOTE_DIR"
 # --exclude: 排除不需要上传的文件
 rsync -avz --delete \
     --exclude-from=.rsyncignore \
+    --exclude-from=.gitignore \
     . "$USERNAME@$REMOTE_ADDRESS:$REMOTE_DIR"
 
 # 检查rsync执行结果

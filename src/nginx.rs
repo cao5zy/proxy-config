@@ -7,10 +7,39 @@
 use crate::{config::AppConfig, config::AppType, Error, Result};
 use std::path::Path;
 
+/// 验证nginx变量名称是否合法
+///
+/// nginx变量名称只能包含字母、数字和下划线，且不能以数字开头
+pub fn validate_nginx_variable_name(name: &str) -> Result<()> {
+    if name.is_empty() {
+        return Err(Error::Nginx("nginx变量名称不能为空".to_string()));
+    }
+
+    if let Some(c) = name.chars().next() {
+        if c.is_ascii_digit() {
+            return Err(Error::Nginx(format!(
+                "nginx变量名称不能以数字开头: '{}'",
+                name
+            )));
+        }
+    }
+
+    for c in name.chars() {
+        if !c.is_ascii_alphanumeric() && c != '_' {
+            return Err(Error::Nginx(format!(
+                "nginx变量名称包含非法字符 '{}': '{}'",
+                c, name
+            )));
+        }
+    }
+
+    Ok(())
+}
+
 /// 生成nginx配置
 ///
 /// # 参数
-/// - `apps`: 应用配置列表（会自动过滤掉 Internal 类型的应用）
+/// - `apps`: 应用配置列表（会自动过滤掉不需要nginx代理的应用）
 /// - `web_root`: Web根目录，用于存放ACME验证文件
 /// - `cert_dir`: 证书目录
 /// - `domain`: 域名（可选）
@@ -35,15 +64,21 @@ pub fn generate_nginx_config(
     log::debug!("domain: {:?}", domain);
     log::debug!("应用数量: {}", apps.len());
 
-    // 过滤掉 Internal 类型的应用
+    // 过滤掉不需要 nginx 代理的应用（Internal 类型且无 routes）
     let nginx_apps: Vec<&AppConfig> = apps
         .iter()
-        .filter(|app| app.app_type != AppType::Internal)
+        .filter(|app| app.needs_nginx())
         .collect();
 
     log::debug!("需要nginx代理的应用数量: {}", nginx_apps.len());
     for app in &nginx_apps {
         log::debug!("  - {} ({})", app.name, format_app_type(&app.app_type));
+    }
+
+    // 验证所有应用的nginx变量名是否合法
+    for app in &nginx_apps {
+        let var_name = format!("{}_upstream_host", app.name);
+        validate_nginx_variable_name(&var_name)?;
     }
 
     let mut config = String::new();
@@ -252,7 +287,7 @@ fn generate_http_server_block(apps: &[&AppConfig], web_root: &str) -> String {
 /// 用于HTTPS场景，包含业务逻辑
 ///
 /// # 参数
-/// - `apps`: 应用配置列表（已过滤掉 Internal 类型）
+/// - `apps`: 应用配置列表（已过滤掉不需要nginx代理的应用）
 /// - `web_root`: Web根目录，用于存放ACME验证文件
 /// - `cert_dir`: 证书目录
 /// - `domain`: 域名
@@ -272,7 +307,7 @@ fn generate_https_server_block(
 /// 生成Server配置块内部实现（纯函数）
 ///
 /// # 参数
-/// - `apps`: 应用配置列表（已过滤掉 Internal 类型）
+/// - `apps`: 应用配置列表（已过滤掉不需要nginx代理的应用）
 /// - `port`: 监听端口（容器内部端口）
 /// - `web_root`: Web根目录，用于存放ACME验证文件
 /// - `is_https`: 是否为HTTPS
@@ -454,11 +489,11 @@ fn generate_location_config(app: &AppConfig, route: &str) -> String {
             } else {
                 // 非根路径：使用 rewrite 处理
                 // ^/resume_app(/.*)?$ 匹配：
-                //   - /resume_app -> $1 为空 -> 重写为 /
+                //   - /resume_app -> $1 为空 -> 重写为空（请求 / 根路径）
                 //   - /resume_app/ -> $1 为 / -> 重写为 /
                 //   - /resume_app/assets/xxx -> $1 为 /assets/xxx -> 重写为 /assets/xxx
                 let rewrite_pattern = format!("^{}(/.*)?$", route);
-                let rewrite_target = "/$1";
+                let rewrite_target = "$1";
                 let rewrite_rule = format!(
                     "            rewrite {} {} break;\n",
                     rewrite_pattern, rewrite_target
@@ -528,11 +563,77 @@ fn generate_location_config(app: &AppConfig, route: &str) -> String {
             location.push_str("        }\n\n");
         }
         AppType::Internal => {
-            // Internal 类型不应该生成 nginx 配置
-            log::warn!(
-                "Internal 应用 '{}' 不应该生成 nginx location 配置",
-                app.name
+            // Internal 类型（第三方内部服务）无法处理路由前缀
+            // - 根路径 `/`: 直接转发，不修改 URI
+            // - 非根路径（如 `/minio`）: 使用 rewrite 剥离路由前缀
+            //   访问 /minio -> 重写为 /
+            //   访问 /minio/bucket/file -> 重写为 /bucket/file
+            // （没有 routes 的 Internal 应用已被过滤，不会到达这里）
+            log::debug!(
+                "Internal 应用 '{}' 生成 nginx location 配置 (路由: {})",
+                app.name,
+                route
             );
+
+            let (proxy_pass_url, rewrite_rule, comment) = if is_root_route {
+                (
+                    format!("http://${{{}}}:{}", upstream_host_var, app.container_port),
+                    String::new(),
+                    format!("# 内部服务: {}", app.name),
+                )
+            } else {
+                let rewrite_pattern = format!("^{}(/.*)?$", route);
+                let rewrite_target = "$1";
+                let rewrite_rule = format!(
+                    "            rewrite {} {} break;\n",
+                    rewrite_pattern, rewrite_target
+                );
+                (
+                    format!("http://${{{}}}:{}", upstream_host_var, app.container_port),
+                    rewrite_rule,
+                    format!("# 内部服务: {} (自动剥离路由前缀)", app.name),
+                )
+            };
+
+            let connect_timeout = app.proxy_connect_timeout.unwrap_or(60);
+            let send_timeout = app.proxy_send_timeout.unwrap_or(60);
+            let read_timeout = app.proxy_read_timeout.unwrap_or(60);
+
+            location.push_str(&format!(
+                r#"        {}
+        location {} {{
+{}            proxy_pass {};
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            # 代理超时设置
+            proxy_connect_timeout {}s;
+            proxy_send_timeout {}s;
+            proxy_read_timeout {}s;
+
+            # 禁用缓存
+            expires off;
+            add_header Cache-Control "no-cache, no-store, must-revalidate";
+"#,
+                comment,
+                route,
+                rewrite_rule,
+                proxy_pass_url,
+                connect_timeout,
+                send_timeout,
+                read_timeout
+            ));
+
+            // 添加额外的nginx配置
+            if let Some(extra_config) = &app.nginx_extra_config {
+                for line in extra_config.lines() {
+                    location.push_str(&format!("            {}\n", line));
+                }
+            }
+
+            location.push_str("        }\n\n");
         }
     }
 
@@ -574,9 +675,9 @@ mod tests {
     #[test]
     fn test_generate_location_config_static_root() {
         let app = AppConfig {
-            name: "test-app".to_string(),
+            name: "test_app".to_string(),
             routes: vec!["/".to_string()],
-            container_name: "test-container".to_string(),
+            container_name: "test_container".to_string(),
             container_port: 80,
             app_type: AppType::Static,
             description: None,
@@ -595,9 +696,9 @@ mod tests {
         let location = generate_location_config(&app, "/");
         assert!(location.contains("location /"));
         // 应该使用变量
-        assert!(location.contains("proxy_pass http://${test-app_upstream_host}:80;"));
+        assert!(location.contains("proxy_pass http://${test_app_upstream_host}:80;"));
         // 根路径不应该有尾部的 /
-        assert!(!location.contains("proxy_pass http://${test-app_upstream_host}:80/;"));
+        assert!(!location.contains("proxy_pass http://${test_app_upstream_host}:80/;"));
         // 根路径不应该有 rewrite 规则
         assert!(!location.contains("rewrite"));
         assert!(location.contains("expires 7d;"));
@@ -606,9 +707,9 @@ mod tests {
     #[test]
     fn test_generate_location_config_static_subpath() {
         let app = AppConfig {
-            name: "resume-app".to_string(),
+            name: "resume_app".to_string(),
             routes: vec!["/resume_app".to_string()],
-            container_name: "resume-container".to_string(),
+            container_name: "resume_container".to_string(),
             container_port: 80,
             app_type: AppType::Static,
             description: None,
@@ -627,20 +728,20 @@ mod tests {
         let location = generate_location_config(&app, "/resume_app");
         assert!(location.contains("location /resume_app"));
         // 应该使用变量
-        assert!(location.contains("proxy_pass http://${resume-app_upstream_host}:80;"));
+        assert!(location.contains("proxy_pass http://${resume_app_upstream_host}:80;"));
         // 静态资源服务不应该有尾部的 /
-        assert!(!location.contains("proxy_pass http://${resume-app_upstream_host}:80/;"));
+        assert!(!location.contains("proxy_pass http://${resume_app_upstream_host}:80/;"));
         // 应该有 rewrite 规则，使用可选分组
-        assert!(location.contains("rewrite ^/resume_app(/.*)?$ /$1 break;"));
+        assert!(location.contains("rewrite ^/resume_app(/.*)?$ $1 break;"));
         assert!(location.contains("expires 7d;"));
     }
 
     #[test]
     fn test_generate_location_config_api() {
         let app = AppConfig {
-            name: "api-service".to_string(),
+            name: "api_service".to_string(),
             routes: vec!["/api".to_string()],
-            container_name: "api-container".to_string(),
+            container_name: "api_container".to_string(),
             container_port: 3000,
             app_type: AppType::Api,
             description: None,
@@ -659,20 +760,118 @@ mod tests {
         let location = generate_location_config(&app, "/api");
         assert!(location.contains("location /api"));
         // 应该使用变量
-        assert!(location.contains("proxy_pass http://${api-service_upstream_host}:3000;"));
+        assert!(location.contains("proxy_pass http://${api_service_upstream_host}:3000;"));
         // API服务不应该有尾部的 /
-        assert!(!location.contains("proxy_pass http://${api-service_upstream_host}:3000/;"));
+        assert!(!location.contains("proxy_pass http://${api_service_upstream_host}:3000/;"));
         assert!(location.contains("expires off;"));
         assert!(location.contains("add_header 'Access-Control-Allow-Origin' '*';"));
+    }
+
+    #[test]
+    fn test_generate_location_config_internal_root() {
+        let app = AppConfig {
+            name: "test_app".to_string(),
+            routes: vec!["/".to_string()],
+            container_name: "test_container".to_string(),
+            container_port: 8080,
+            app_type: AppType::Internal,
+            description: None,
+            nginx_extra_config: None,
+            path: None,
+            docker_volumes: vec![],
+            run_as_user: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
+        };
+
+        let location = generate_location_config(&app, "/");
+        // 根路径不应有 rewrite 规则
+        assert!(!location.contains("rewrite"));
+        // 应该有 proxy_pass
+        assert!(location.contains("proxy_pass http://${test_app_upstream_host}:8080;"));
+        // 应该有内部服务注释（不含剥离前缀说明）
+        assert!(location.contains("# 内部服务: test_app"));
+        assert!(!location.contains("自动剥离路由前缀"));
+        // 应该有 expires off（内部服务禁用缓存）
+        assert!(location.contains("expires off;"));
+    }
+
+    #[test]
+    fn test_generate_location_config_internal_with_prefix() {
+        let app = AppConfig {
+            name: "minio".to_string(),
+            routes: vec!["/minio".to_string()],
+            container_name: "minio_container".to_string(),
+            container_port: 9000,
+            app_type: AppType::Internal,
+            description: None,
+            nginx_extra_config: None,
+            path: None,
+            docker_volumes: vec![],
+            run_as_user: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
+        };
+
+        let location = generate_location_config(&app, "/minio");
+        // 应该有 rewrite 规则剥离路由前缀
+        assert!(location.contains("rewrite ^/minio(/.*)?$ $1 break;"));
+        // proxy_pass 正确
+        assert!(location.contains("proxy_pass http://${minio_upstream_host}:9000;"));
+        // 应该有内部服务注释（含剥离前缀说明）
+        assert!(location.contains("# 内部服务: minio (自动剥离路由前缀)"));
+        // location 块使用 /minio 路径
+        assert!(location.contains("location /minio"));
+    }
+
+    #[test]
+    fn test_generate_location_config_internal_subpath_strips() {
+        let app = AppConfig {
+            name: "admin_panel".to_string(),
+            routes: vec!["/admin_panel".to_string()],
+            container_name: "admin_container".to_string(),
+            container_port: 3000,
+            app_type: AppType::Internal,
+            description: None,
+            nginx_extra_config: None,
+            path: None,
+            docker_volumes: vec![],
+            run_as_user: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
+        };
+
+        let location = generate_location_config(&app, "/admin_panel");
+        // rewrite 模式匹配路由
+        assert!(location.contains("rewrite ^/admin_panel(/.*)?$ $1 break;"));
+        // 保留 expires off（不是静态缓存头）
+        assert!(location.contains("expires off;"));
+        // 不应该有静态缓存头
+        assert!(!location.contains("expires 7d;"));
+        assert!(!location.contains("Cache-Control \"public, immutable\""));
+        // proxy_pass 正确
+        assert!(location.contains("proxy_pass http://${admin_panel_upstream_host}:3000;"));
     }
 
     #[test]
     fn test_generate_nginx_config_http_only() {
         let apps = vec![
             AppConfig {
-                name: "main-app".to_string(),
+                name: "main_app".to_string(),
                 routes: vec!["/".to_string()],
-                container_name: "main-container".to_string(),
+                container_name: "main_container".to_string(),
                 container_port: 80,
                 app_type: AppType::Static,
                 description: None,
@@ -688,9 +887,9 @@ mod tests {
                 proxy_send_timeout: None,
             },
             AppConfig {
-                name: "api-service".to_string(),
+                name: "api_service".to_string(),
                 routes: vec!["/api".to_string()],
-                container_name: "api-container".to_string(),
+                container_name: "api_container".to_string(),
                 container_port: 3000,
                 app_type: AppType::Api,
                 description: None,
@@ -732,12 +931,12 @@ mod tests {
         assert!(config.contains("resolver 127.0.0.11 valid=30s ipv6=off;"));
 
         // 检查是否包含set指令定义变量
-        assert!(config.contains("set $main-app_upstream_host main-container;"));
-        assert!(config.contains("set $api-service_upstream_host api-container;"));
+        assert!(config.contains("set $main_app_upstream_host main_container;"));
+        assert!(config.contains("set $api_service_upstream_host api_container;"));
 
         // 检查location是否使用变量
-        assert!(config.contains("proxy_pass http://${main-app_upstream_host}:80;"));
-        assert!(config.contains("proxy_pass http://${api-service_upstream_host}:3000;"));
+        assert!(config.contains("proxy_pass http://${main_app_upstream_host}:80;"));
+        assert!(config.contains("proxy_pass http://${api_service_upstream_host}:3000;"));
 
         // 不应该包含upstream块（检查 "upstream " 后面有空格，或者 "upstream {"）
         assert!(!config.contains("upstream "));
@@ -766,9 +965,9 @@ mod tests {
     fn test_generate_nginx_config_https() {
         let apps = vec![
             AppConfig {
-                name: "main-app".to_string(),
+                name: "main_app".to_string(),
                 routes: vec!["/".to_string()],
-                container_name: "main-container".to_string(),
+                container_name: "main_container".to_string(),
                 container_port: 80,
                 app_type: AppType::Static,
                 description: None,
@@ -784,9 +983,9 @@ mod tests {
                 proxy_send_timeout: None,
             },
             AppConfig {
-                name: "api-service".to_string(),
+                name: "api_service".to_string(),
                 routes: vec!["/api".to_string()],
-                container_name: "api-container".to_string(),
+                container_name: "api_container".to_string(),
                 container_port: 3000,
                 app_type: AppType::Api,
                 description: None,
@@ -862,9 +1061,9 @@ mod tests {
     fn test_generate_nginx_config_with_internal() {
         let apps = vec![
             AppConfig {
-                name: "main-app".to_string(),
+                name: "main_app".to_string(),
                 routes: vec!["/".to_string()],
-                container_name: "main-container".to_string(),
+                container_name: "main_container".to_string(),
                 container_port: 80,
                 app_type: AppType::Static,
                 description: None,
@@ -879,10 +1078,11 @@ mod tests {
 
                 proxy_send_timeout: None,
             },
+            // Internal without routes — should be filtered out
             AppConfig {
                 name: "redis".to_string(),
                 routes: vec![],
-                container_name: "redis-container".to_string(),
+                container_name: "redis_container".to_string(),
                 container_port: 6379,
                 app_type: AppType::Internal,
                 description: None,
@@ -897,10 +1097,29 @@ mod tests {
 
                 proxy_send_timeout: None,
             },
+            // Internal with routes — should be included like API
             AppConfig {
-                name: "api-service".to_string(),
+                name: "minio".to_string(),
+                routes: vec!["/minio".to_string()],
+                container_name: "minio_container".to_string(),
+                container_port: 9000,
+                app_type: AppType::Internal,
+                description: Some("MinIO object storage".to_string()),
+                nginx_extra_config: Some("client_max_body_size 0;".to_string()),
+                path: Some("./services/minio".to_string()),
+                docker_volumes: vec![],
+                run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
+            },
+            AppConfig {
+                name: "api_service".to_string(),
                 routes: vec!["/api".to_string()],
-                container_name: "api-container".to_string(),
+                container_name: "api_container".to_string(),
                 container_port: 3000,
                 app_type: AppType::Api,
                 description: None,
@@ -931,6 +1150,7 @@ mod tests {
         assert!(!config.contains("listen 8080;"));
         assert!(config.contains("location /"));
         assert!(config.contains("location /api"));
+        assert!(config.contains("location /minio"));
 
         // 检查是否包含 ACME 验证 location
         assert!(config.contains("location /.well-known/acme-challenge/"));
@@ -940,13 +1160,21 @@ mod tests {
         assert!(config.contains("resolver 127.0.0.11 valid=30s ipv6=off;"));
 
         // 检查是否包含set指令定义变量（不应该包含 redis 的变量）
-        assert!(config.contains("set $main-app_upstream_host main-container;"));
-        assert!(config.contains("set $api-service_upstream_host api-container;"));
+        assert!(config.contains("set $main_app_upstream_host main_container;"));
+        assert!(config.contains("set $minio_upstream_host minio_container;"));
+        assert!(config.contains("set $api_service_upstream_host api_container;"));
         assert!(!config.contains("set $redis_upstream_host"));
 
         // 检查location是否使用变量
-        assert!(config.contains("proxy_pass http://${main-app_upstream_host}:80;"));
-        assert!(config.contains("proxy_pass http://${api-service_upstream_host}:3000;"));
+        assert!(config.contains("proxy_pass http://${main_app_upstream_host}:80;"));
+        assert!(config.contains("proxy_pass http://${minio_upstream_host}:9000;"));
+        assert!(config.contains("proxy_pass http://${api_service_upstream_host}:3000;"));
+
+        // minio internal 应用应该生成 API 风格的配置
+        let minio_location = config.split("location /minio").nth(1).unwrap_or("");
+        assert!(minio_location.contains("proxy_connect_timeout"));
+        assert!(minio_location.contains("expires off;"));
+        assert!(minio_location.contains("client_max_body_size 0;"));
 
         // 不应该包含upstream块（检查 "upstream " 后面有空格，或者 "upstream {"）
         assert!(!config.contains("upstream "));
@@ -962,9 +1190,11 @@ mod tests {
         let acme_pos = config
             .find("location /.well-known/acme-challenge/")
             .unwrap();
+        let minio_pos = config.find("location /minio ").unwrap();
         let api_pos = config.find("location /api ").unwrap();
         let root_pos = config.find("location / ").unwrap();
         assert!(acme_pos < api_pos, "ACME location 应该在最前面");
+        assert!(minio_pos < api_pos);
         assert!(api_pos < root_pos, "location /api 应该在 location / 之前");
 
         // 检查 http 块是否正确闭合
@@ -974,9 +1204,9 @@ mod tests {
     #[test]
     fn test_generate_nginx_config_without_root_route() {
         let apps = vec![AppConfig {
-            name: "api-service".to_string(),
+            name: "api_service".to_string(),
             routes: vec!["/api".to_string()],
-            container_name: "api-container".to_string(),
+            container_name: "api_container".to_string(),
             container_port: 3000,
             app_type: AppType::Api,
             description: None,
@@ -1007,9 +1237,9 @@ mod tests {
     fn test_location_ordering() {
         let apps = vec![
             AppConfig {
-                name: "root-app".to_string(),
+                name: "root_app".to_string(),
                 routes: vec!["/".to_string()],
-                container_name: "root-container".to_string(),
+                container_name: "root_container".to_string(),
                 container_port: 80,
                 app_type: AppType::Static,
                 description: None,
@@ -1025,9 +1255,9 @@ mod tests {
                 proxy_send_timeout: None,
             },
             AppConfig {
-                name: "resume-app".to_string(),
+                name: "resume_app".to_string(),
                 routes: vec!["/resume_app".to_string()],
-                container_name: "resume-container".to_string(),
+                container_name: "resume_container".to_string(),
                 container_port: 80,
                 app_type: AppType::Static,
                 description: None,
@@ -1043,9 +1273,9 @@ mod tests {
                 proxy_send_timeout: None,
             },
             AppConfig {
-                name: "api-service".to_string(),
+                name: "api_service".to_string(),
                 routes: vec!["/api".to_string()],
-                container_name: "api-container".to_string(),
+                container_name: "api_container".to_string(),
                 container_port: 3000,
                 app_type: AppType::Api,
                 description: None,
@@ -1088,9 +1318,9 @@ mod tests {
     fn test_static_rewrite_rule() {
         // 测试静态资源服务的 rewrite 规则
         let app = AppConfig {
-            name: "resume-app".to_string(),
+            name: "resume_app".to_string(),
             routes: vec!["/resume_app".to_string()],
-            container_name: "resume-container".to_string(),
+            container_name: "resume_container".to_string(),
             container_port: 80,
             app_type: AppType::Static,
             description: None,
@@ -1109,19 +1339,19 @@ mod tests {
         let location = generate_location_config(&app, "/resume_app");
 
         // 应该有 rewrite 规则，使用可选分组
-        assert!(location.contains("rewrite ^/resume_app(/.*)?$ /$1 break;"));
+        assert!(location.contains("rewrite ^/resume_app(/.*)?$ $1 break;"));
         // proxy_pass 不应该有尾部的 /
-        assert!(location.contains("proxy_pass http://${resume-app_upstream_host}:80;"));
-        assert!(!location.contains("proxy_pass http://${resume-app_upstream_host}:80/;"));
+        assert!(location.contains("proxy_pass http://${resume_app_upstream_host}:80;"));
+        assert!(!location.contains("proxy_pass http://${resume_app_upstream_host}:80/;"));
     }
 
     #[test]
     fn test_api_preserves_path() {
         // 测试API服务保留完整路径
         let app = AppConfig {
-            name: "api-service".to_string(),
+            name: "api_service".to_string(),
             routes: vec!["/api".to_string()],
-            container_name: "api-container".to_string(),
+            container_name: "api_container".to_string(),
             container_port: 3000,
             app_type: AppType::Api,
             description: None,
@@ -1140,8 +1370,8 @@ mod tests {
         let location = generate_location_config(&app, "/api");
 
         // API服务应该保留完整路径，proxy_pass 不应该有尾部的 /
-        assert!(location.contains("proxy_pass http://${api-service_upstream_host}:3000;"));
-        assert!(!location.contains("proxy_pass http://${api-service_upstream_host}:3000/;"));
+        assert!(location.contains("proxy_pass http://${api_service_upstream_host}:3000;"));
+        assert!(!location.contains("proxy_pass http://${api_service_upstream_host}:3000/;"));
         // API服务不应该有 rewrite 规则
         assert!(!location.contains("rewrite"));
     }
@@ -1152,7 +1382,7 @@ mod tests {
         let apps = vec![AppConfig {
             name: "redis".to_string(),
             routes: vec![],
-            container_name: "redis-container".to_string(),
+            container_name: "redis_container".to_string(),
             container_port: 6379,
             app_type: AppType::Internal,
             description: None,
@@ -1202,5 +1432,38 @@ mod tests {
 
         // 检查 http 块是否正确闭合
         assert!(config.ends_with("}\n"));
+    }
+
+    #[test]
+    fn test_validate_nginx_variable_name_valid() {
+        assert!(validate_nginx_variable_name("app_upstream_host").is_ok());
+        assert!(validate_nginx_variable_name("my_app_upstream_host").is_ok());
+        assert!(validate_nginx_variable_name("App123").is_ok());
+        assert!(validate_nginx_variable_name("_private").is_ok());
+    }
+
+    #[test]
+    fn test_validate_nginx_variable_name_with_hyphen() {
+        let result = validate_nginx_variable_name("test-app_upstream_host");
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("-"), "错误信息应包含非法字符 '-'");
+    }
+
+    #[test]
+    fn test_validate_nginx_variable_name_empty() {
+        assert!(validate_nginx_variable_name("").is_err());
+    }
+
+    #[test]
+    fn test_validate_nginx_variable_name_starts_with_digit() {
+        assert!(validate_nginx_variable_name("123app").is_err());
+    }
+
+    #[test]
+    fn test_validate_nginx_variable_name_with_special_chars() {
+        assert!(validate_nginx_variable_name("app.name").is_err());
+        assert!(validate_nginx_variable_name("app name").is_err());
+        assert!(validate_nginx_variable_name("app@name").is_err());
     }
 }

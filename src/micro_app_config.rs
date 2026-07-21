@@ -39,6 +39,31 @@ pub struct MicroAppConfig {
     pub proxy_send_timeout: Option<u64>,
 }
 
+/// 验证单个路由格式是否合法
+///
+/// 规则：
+/// - 路由不能为空
+/// - 必须以 `/` 开头
+/// - 不能以 `/` 结尾，除非路由恰好是 `"/"`（根路由）
+pub fn validate_route_format(route: &str) -> Result<()> {
+    if route.is_empty() {
+        return Err(Error::Config("路由不能为空".to_string()));
+    }
+    if !route.starts_with('/') {
+        return Err(Error::Config(format!(
+            "路由 '{}' 必须以 '/' 开头",
+            route
+        )));
+    }
+    if route != "/" && route.ends_with('/') {
+        return Err(Error::Config(format!(
+            "路由 '{}' 不能以 '/' 结尾（根路由 '/' 除外）",
+            route
+        )));
+    }
+    Ok(())
+}
+
 impl MicroAppConfig {
     /// 从文件加载微应用配置
     pub fn from_file<P: Into<PathBuf>>(path: P) -> Result<Self> {
@@ -100,11 +125,19 @@ impl MicroAppConfig {
             )));
         }
 
-        // internal 类型不应该配置 routes
+        // 验证每个路由格式
+        for route in &self.routes {
+            validate_route_format(route)?;
+        }
+
+        // internal 类型：routes 可选
+        // - 空 routes：纯内部服务（如 Redis），不暴露到 nginx
+        // - 有 routes：对外暴露 HTTP 服务的内部应用（如 MinIO），通过 nginx 代理
         if self.app_type == "internal" && !self.routes.is_empty() {
-            log::warn!(
-                "微应用 '{}' 是 internal 类型，routes 配置将被忽略",
-                app_name
+            log::debug!(
+                "微应用 '{}' 是 internal 类型，配置了 {} 个路由",
+                app_name,
+                self.routes.len()
             );
         }
 
@@ -273,5 +306,64 @@ nginx_extra_config: |
         // internal 类型有 routes 应该只是警告，不报错
         let result = config.validate("test-app");
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_route_format_valid_root() {
+        assert!(validate_route_format("/").is_ok());
+    }
+
+    #[test]
+    fn test_validate_route_format_valid_path() {
+        assert!(validate_route_format("/api").is_ok());
+        assert!(validate_route_format("/gg123_test").is_ok());
+        assert!(validate_route_format("/a/b/c").is_ok());
+    }
+
+    #[test]
+    fn test_validate_route_format_trailing_slash() {
+        let result = validate_route_format("/gg123_test/");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("/gg123_test/"));
+    }
+
+    #[test]
+    fn test_validate_route_format_trailing_slash_root() {
+        // "/" is the only exception — it is allowed to "end" with "/"
+        assert!(validate_route_format("/").is_ok());
+    }
+
+    #[test]
+    fn test_validate_route_format_empty() {
+        let result = validate_route_format("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_route_format_no_leading_slash() {
+        let result = validate_route_format("api");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_route_in_micro_app_config() {
+        let config = MicroAppConfig {
+            routes: vec!["/gg123_test/".to_string()],
+            container_name: "test-container".to_string(),
+            container_port: 80,
+            app_type: "static".to_string(),
+            description: None,
+            nginx_extra_config: None,
+
+            proxy_connect_timeout: None,
+
+            proxy_read_timeout: None,
+
+            proxy_send_timeout: None,
+        };
+
+        let result = config.validate("test-app");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("/gg123_test/"));
     }
 }

@@ -156,9 +156,9 @@ impl NetworkAddressInfo {
     ) -> Self {
         let network_address = app_name.clone();
 
-        // Internal 类型没有可访问的 URL
-        let accessible_urls = if *app_type == AppType::Internal {
-            log::debug!("Internal 应用 '{}' 没有可访问的 URL", app_name);
+        // Internal 类型：有 routes 时可访问，无 routes 时没有可访问 URL
+        let accessible_urls = if *app_type == AppType::Internal && routes.is_empty() {
+            log::debug!("Internal 应用 '{}' 没有配置 routes，没有可访问的 URL", app_name);
             Vec::new()
         } else {
             routes
@@ -316,6 +316,24 @@ mod tests {
     }
 
     #[test]
+    fn test_network_address_info_new_internal_with_routes() {
+        let info = NetworkAddressInfo::new(
+            "minio".to_string(),
+            "minio-container".to_string(),
+            9000,
+            &["/minio".to_string()],
+            8080,
+            &AppType::Internal,
+        );
+
+        assert_eq!(info.app_name, "minio");
+        assert_eq!(info.container_name, "minio-container");
+        assert_eq!(info.container_port, 9000);
+        assert_eq!(info.accessible_urls.len(), 1);
+        assert_eq!(info.accessible_urls[0], "http://localhost:8080/minio");
+    }
+
+    #[test]
     fn test_network_address_info_format_static() {
         let info = NetworkAddressInfo::new(
             "test-app".to_string(),
@@ -337,6 +355,7 @@ mod tests {
 
     #[test]
     fn test_network_address_info_format_internal() {
+        // 无 routes 的 internal 服务显示 "无（内部服务）"
         let info = NetworkAddressInfo::new(
             "redis".to_string(),
             "redis-container".to_string(),
@@ -352,6 +371,24 @@ mod tests {
         assert!(formatted.contains("网络地址: redis"));
         assert!(formatted.contains("容器端口: 6379"));
         assert!(formatted.contains("访问地址: 无（内部服务）"));
+
+        // 有 routes 的 internal 服务显示访问地址
+        let info_with_routes = NetworkAddressInfo::new(
+            "minio".to_string(),
+            "minio-container".to_string(),
+            9000,
+            &["/minio".to_string()],
+            8080,
+            &AppType::Internal,
+        );
+
+        let formatted_with_routes = info_with_routes.format();
+        assert!(formatted_with_routes.contains("微应用名称: minio"));
+        assert!(formatted_with_routes.contains("容器名称: minio-container"));
+        assert!(formatted_with_routes.contains("容器端口: 9000"));
+        assert!(formatted_with_routes.contains("http://localhost:8080/minio"));
+        // 不应显示 "无（内部服务）"
+        assert!(!formatted_with_routes.contains("无（内部服务）"));
     }
 
     #[test]

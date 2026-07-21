@@ -16,7 +16,9 @@ pub enum AppType {
     Static,
     /// API服务
     Api,
-    /// 内部服务（如Redis等，不需要nginx反向代理）
+    /// 内部服务（如数据库、中间件等）
+    /// - 无 routes：纯内部服务（如Redis），不需要nginx反向代理
+    /// - 有 routes：对外暴露HTTP服务的内部应用（如MinIO），通过nginx代理
     Internal,
 }
 
@@ -28,7 +30,7 @@ pub struct AppConfig {
 
     /// 反向代理路径配置
     /// - 对于 Static 和 Api 类型：必须配置
-    /// - 对于 Internal 类型：可以为空（不需要nginx代理）
+    /// - 对于 Internal 类型：可以为空（纯内部服务），或配置路由对外暴露HTTP服务
     #[serde(default)]
     pub routes: Vec<String>,
 
@@ -46,7 +48,7 @@ pub struct AppConfig {
     pub description: Option<String>,
 
     /// 额外的nginx配置（可选）
-    /// - 仅对 Static 和 Api 类型有效
+    /// - 对 Static、Api 和配置了路由的 Internal 类型有效
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nginx_extra_config: Option<String>,
 
@@ -77,6 +79,19 @@ pub struct AppConfig {
     /// 代理发送超时（秒，可选）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proxy_send_timeout: Option<u64>,
+}
+
+impl AppConfig {
+    /// 判断应用是否需要 nginx 反向代理
+    ///
+    /// - Static 和 Api 类型始终需要
+    /// - Internal 类型仅在配置了 routes 时需要
+    pub fn needs_nginx(&self) -> bool {
+        match self.app_type {
+            AppType::Static | AppType::Api => true,
+            AppType::Internal => !self.routes.is_empty(),
+        }
+    }
 }
 
 /// 动态生成的应用配置结构
@@ -319,15 +334,17 @@ impl ProxyConfig {
                         )));
                     }
 
-                    // routes 应该为空
-                    if !app.routes.is_empty() {
-                        log::warn!("警告: Internal 应用 '{}' 配置了 routes，将被忽略", app.name);
+                    // routes 现在允许配置用于对外暴露 HTTP 服务
+                    if app.routes.is_empty() {
+                        log::debug!("Internal 应用 '{}' 没有配置 routes，作为纯内部服务", app.name);
+                    } else {
+                        log::debug!("Internal 应用 '{}' 配置了 {} 个路由，将通过 nginx 对外暴露", app.name, app.routes.len());
                     }
 
-                    // nginx_extra_config 不应该配置
-                    if app.nginx_extra_config.is_some() {
+                    // nginx_extra_config: 仅在没有 routes 时无意义
+                    if !app.needs_nginx() && app.nginx_extra_config.is_some() {
                         log::warn!(
-                            "警告: Internal 应用 '{}' 配置了 nginx_extra_config，将被忽略",
+                            "警告: Internal 应用 '{}' 没有配置 routes，nginx_extra_config 将被忽略",
                             app.name
                         );
                     }
@@ -363,10 +380,12 @@ impl ProxyConfig {
         apps.iter().find(|app| app.name == name)
     }
 
-    /// 获取所有需要 nginx 代理的应用（过滤掉 Internal 类型）
+    /// 获取所有需要 nginx 代理的应用
+    /// - Static 和 Api 类型始终需要
+    /// - Internal 类型仅在配置了 routes 时需要
     pub fn get_nginx_apps<'a>(&self, apps: &'a [AppConfig]) -> Vec<&'a AppConfig> {
         apps.iter()
-            .filter(|app| app.app_type != AppType::Internal)
+            .filter(|app| app.needs_nginx())
             .collect()
     }
 
@@ -769,6 +788,24 @@ app_type: internal
 
                 proxy_send_timeout: None,
             },
+            AppConfig {
+                name: "minio".to_string(),
+                routes: vec!["/minio".to_string()],
+                container_name: "minio-container".to_string(),
+                container_port: 9000,
+                app_type: AppType::Internal,
+                description: Some("MinIO object storage".to_string()),
+                nginx_extra_config: None,
+                path: Some("./services/minio".to_string()),
+                docker_volumes: vec![],
+                run_as_user: None,
+
+                proxy_connect_timeout: None,
+
+                proxy_read_timeout: None,
+
+                proxy_send_timeout: None,
+            },
         ];
 
         let config = ProxyConfig {
@@ -786,8 +823,9 @@ app_type: internal
         };
 
         let nginx_apps = config.get_nginx_apps(&apps);
-        assert_eq!(nginx_apps.len(), 1);
+        assert_eq!(nginx_apps.len(), 2);
         assert_eq!(nginx_apps[0].name, "test-app");
+        assert_eq!(nginx_apps[1].name, "minio");
     }
 
     #[test]
@@ -848,6 +886,42 @@ app_type: internal
         let internal_apps = config.get_internal_apps(&apps);
         assert_eq!(internal_apps.len(), 1);
         assert_eq!(internal_apps[0].name, "redis");
+
+        // 带 routes 的 internal 应用也属于 get_internal_apps 的返回结果
+        let apps_with_routes = vec![
+            AppConfig {
+                name: "redis".to_string(),
+                routes: vec![],
+                container_name: "redis-container".to_string(),
+                container_port: 6379,
+                app_type: AppType::Internal,
+                description: None,
+                nginx_extra_config: None,
+                path: Some("./services/redis".to_string()),
+                docker_volumes: vec![],
+                run_as_user: None,
+                proxy_connect_timeout: None,
+                proxy_read_timeout: None,
+                proxy_send_timeout: None,
+            },
+            AppConfig {
+                name: "minio".to_string(),
+                routes: vec!["/minio".to_string()],
+                container_name: "minio-container".to_string(),
+                container_port: 9000,
+                app_type: AppType::Internal,
+                description: Some("MinIO".to_string()),
+                nginx_extra_config: None,
+                path: Some("./services/minio".to_string()),
+                docker_volumes: vec![],
+                run_as_user: None,
+                proxy_connect_timeout: None,
+                proxy_read_timeout: None,
+                proxy_send_timeout: None,
+            },
+        ];
+        let internal_all = config.get_internal_apps(&apps_with_routes);
+        assert_eq!(internal_all.len(), 2);
     }
 
     #[test]

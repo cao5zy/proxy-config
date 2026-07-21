@@ -29,3 +29,4 @@ network-addresses.txt
 # Temporary files
 *.tmp
 temp/
+.obsidian
