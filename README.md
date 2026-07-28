@@ -222,11 +222,6 @@ app_type: "static"
 # 应用描述（可选）
 description: "应用描述"
 
-# Docker volumes 映射（可选）
-docker_volumes:
-  - "./data:/app/data"           # 读写挂载
-  - "./config:/app/config:ro"    # 只读挂载
-
 # 额外的 nginx 配置（可选，仅 static 和 api 有效）
 nginx_extra_config: |
   add_header 'X-Custom-Header' 'value';
@@ -238,6 +233,39 @@ proxy_send_timeout: 60
 ```
 
 **详细配置说明**请参阅 **[微应用开发专题](docs/micro-app-development.md)**。
+
+### 数据持久化配置文件 (micro-app.volumes.yml)
+
+若微应用需要持久化数据或设置容器权限，请在微应用目录下创建 `micro-app.volumes.yml` 文件：
+
+```yaml
+volumes:
+  - source: "./data"         # 宿主机路径（相对或绝对路径）
+    target: "/data"          # 容器内部路径，数据将持久化到此位置
+    permissions:             # 可选：挂载目录的权限设置
+      uid: 999               # 用户 ID
+      gid: 999               # 组 ID
+      recursive: true        # 是否递归设置权限
+
+run_as_user: "999:999"       # 可选：容器运行时的用户（格式 "uid:gid" 或用户名）
+```
+
+**字段说明：**
+
+| 字段 | 必需 | 说明 |
+|------|------|------|
+| `source` | 是 | 宿主机路径。相对路径以生成的 `docker-compose.yml` 所在位置为基准 |
+| `target` | 是 | 容器内部路径，容器中数据实际存储的位置 |
+| `permissions` | 否 | 权限配置对象，包含 `uid`、`gid` 和可选的 `recursive` |
+| `run_as_user` | 否 | 容器运行时用户，例如 `"999:999"` 或 `"username"` |
+
+**重要约定：**
+
+- `source` 指向的是**宿主机**上的路径；`target` 指向的是**容器内部**的路径。
+- `target` 是容器中数据持久化的位置。应用配置中所有需要持久化的数据路径（如数据库文件、上传目录、日志文件等）都必须位于某个 `target` 之下，否则数据会写入容器可写层，容器重启后丢失。
+- `docker_volumes` 字段已从 `micro-app.yml` 中移除，请改用独立的 `micro-app.volumes.yml` 文件。
+
+> 示例：若 `.env` 中配置了 `DATABASE_PATH=/app/db.sqlite`，且未将 `/app` 映射为 volume target，则该数据库文件不会被持久化到宿主机。
 
 ### SSL 证书配置说明
 
@@ -356,6 +384,7 @@ micro-apps/
     ├── micro-app.yml          # 微应用配置文件（必需）
     ├── Dockerfile             # Docker 构建文件（必需）
     ├── nginx.conf             # Nginx 配置（SPA 应用必需）
+    ├── micro-app.volumes.yml  # 数据持久化与权限配置（可选）
     ├── setup.sh               # 构建前脚本（可选）
     ├── clean.sh               # 清理脚本（可选）
     ├── .env                   # 环境变量（可选）
@@ -410,16 +439,23 @@ nginx_host_port: 8080  # 改为其他未被占用的端口
 
 ### Volumes 挂载问题
 
+请确认 `micro-app.volumes.yml` 中 `source` 和 `target` 的含义：
+
+- `source`：宿主机路径
+- `target`：容器内部路径，数据实际持久化到容器中的位置
+
 ```bash
-# 检查宿主机路径是否存在
+# 检查宿主机路径是否存在（对应 source）
 ls -la ./data
 
-# 检查容器内的挂载点
-docker exec <container-name> ls -la /app/data
+# 检查容器内的挂载点（对应 target）
+docker exec <container-name> ls -la /data
 
 # 查看容器详细信息
 docker inspect <container-name> | grep -A 10 Mounts
 ```
+
+若数据丢失，请检查应用配置的数据路径是否位于某个 volume 的 `target` 之下。
 
 ### SSL 证书相关问题
 

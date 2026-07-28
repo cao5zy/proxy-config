@@ -222,11 +222,6 @@ app_type: "static"
 # Application description (optional)
 description: "Application description"
 
-# Docker volumes mapping (optional)
-docker_volumes:
-  - "./data:/app/data"           # Read-write mount
-  - "./config:/app/config:ro"    # Read-only mount
-
 # Extra nginx configuration (optional, only effective for static and api types)
 nginx_extra_config: |
   add_header 'X-Custom-Header' 'value';
@@ -238,6 +233,39 @@ proxy_send_timeout: 60
 ```
 
 **Detailed configuration instructions** are available in **[Micro-Application Development Guide](docs/micro-app-development.md)**.
+
+### Data Persistence Configuration File (micro-app.volumes.yml)
+
+If a micro-application requires data persistence or container permission settings, create a `micro-app.volumes.yml` file in the micro-application directory:
+
+```yaml
+volumes:
+  - source: "./data"         # Host path (relative or absolute)
+    target: "/data"          # Container-internal path where data will be persisted
+    permissions:             # Optional: permission settings for the mounted directory
+      uid: 999               # User ID
+      gid: 999               # Group ID
+      recursive: true        # Whether to set permissions recursively
+
+run_as_user: "999:999"       # Optional: container runtime user (format "uid:gid" or username)
+```
+
+**Field descriptions:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `source` | Yes | Host path. Relative paths are relative to the generated `docker-compose.yml` location |
+| `target` | Yes | Container-internal path; the actual location where data is stored in the container |
+| `permissions` | No | Permission configuration object, containing `uid`, `gid`, and optional `recursive` |
+| `run_as_user` | No | Container runtime user, e.g. `"999:999"` or `"username"` |
+
+**Important conventions:**
+
+- `source` points to a path on the **host**; `target` points to a path **inside the container**.
+- `target` is the location where data is persisted in the container. All data paths in the application configuration that need persistence (such as database files, upload directories, log files, etc.) must be located under a `target`; otherwise, data will be written to the container's writable layer and lost after the container restarts.
+- The `docker_volumes` field has been removed from `micro-app.yml`. Please use the separate `micro-app.volumes.yml` file instead.
+
+> Example: if `.env` configures `DATABASE_PATH=/app/db.sqlite` and `/app` is not mapped as a volume target, the database file will not be persisted to the host.
 
 ### SSL Certificate Configuration
 
@@ -324,6 +352,7 @@ micro-apps/
     ├── micro-app.yml          # Micro-application configuration (required)
     ├── Dockerfile             # Docker build file (required)
     ├── nginx.conf             # Nginx configuration (required for SPA)
+    ├── micro-app.volumes.yml  # Data persistence and permission configuration (optional)
     ├── setup.sh               # Pre-build script (optional)
     ├── clean.sh               # Cleanup script (optional)
     ├── .env                   # Environment variables (optional)
@@ -378,16 +407,23 @@ nginx_host_port: 8080  # Change to another available port
 
 ### Volumes Mounting Issues
 
+Please confirm the meaning of `source` and `target` in `micro-app.volumes.yml`:
+
+- `source`: the path on the host
+- `target`: the path inside the container where data is actually persisted
+
 ```bash
-# Check if host path exists
+# Check if host path exists (corresponds to source)
 ls -la ./data
 
-# Check mount point inside the container
-docker exec <container-name> ls -la /app/data
+# Check mount point inside the container (corresponds to target)
+docker exec <container-name> ls -la /data
 
 # View container details
 docker inspect <container-name> | grep -A 10 Mounts
 ```
+
+If data is lost, check whether the application's data paths are located under a volume `target`.
 
 ### SSL Certificate Issues
 
