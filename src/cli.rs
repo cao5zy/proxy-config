@@ -445,6 +445,11 @@ fn execute_start(config: &ProxyConfig, force_rebuild: bool) -> Result<()> {
     // 10. 保存状态
     state_manager.save()?;
 
+    // 10.5. 设置卷权限（在容器启动前，确保宿主机目录权限正确）
+    // 如果 Docker 以 root 自动创建了不存在的 bind-mount 源目录，
+    // 容器内的非 root 用户将无法写入。这里提前创建目录并设置权限。
+    setup_volume_permissions(&micro_apps)?;
+
     // 11. 停止并删除现有容器（确保使用最新配置）
     log::info!("停止并删除现有容器...");
     let down_args = vec!["-f", &config.compose_config_path, "down"];
@@ -459,6 +464,103 @@ fn execute_start(config: &ProxyConfig, force_rebuild: bool) -> Result<()> {
     log::info!("所有微应用启动成功！");
     log::info!("Nginx统一入口: http://localhost:{}", config.nginx_host_port);
 
+    Ok(())
+}
+
+/// 在容器启动前设置卷权限
+///
+/// 对每个配置了卷权限的微应用，生成权限初始化脚本并执行。
+/// 先尝试直接执行，如果 chown 失败则尝试 sudo。
+fn setup_volume_permissions(micro_apps: &[MicroApp]) -> Result<()> {
+    for micro_app in micro_apps {
+        let app_path = &micro_app.path;
+        if let Some(script) = micro_app
+            .volumes_config
+            .generate_permission_init_script(app_path)
+        {
+            log::info!(
+                "设置应用 '{}' 的卷权限...",
+                micro_app.name
+            );
+
+            // 将脚本写入临时文件
+            let temp_dir = std::env::temp_dir();
+            let script_path = temp_dir.join(format!(
+                "micro_proxy_vol_perms_{}.sh",
+                micro_app.name
+            ));
+            std::fs::write(&script_path, &script).map_err(|e| {
+                log::error!("写入权限初始化脚本失败: {}", e);
+                Error::Config(format!("写入权限初始化脚本失败: {}", e))
+            })?;
+
+            // 设置可执行权限
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755))
+                    .ok();
+            }
+
+            // 执行脚本，先尝试直接运行，失败则尝试 sudo
+            let result = std::process::Command::new("bash")
+                .arg(script_path.to_str().unwrap_or(""))
+                .output();
+
+            match result {
+                Ok(output) if output.status.success() => {
+                    log::info!(
+                        "应用 '{}' 卷权限设置成功",
+                        micro_app.name
+                    );
+                }
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    log::warn!(
+                        "权限脚本执行失败（stderr: {}），尝试使用 sudo 重试...",
+                        stderr.trim()
+                    );
+                    let sudo_result = std::process::Command::new("sudo")
+                        .arg("bash")
+                        .arg(script_path.to_str().unwrap_or(""))
+                        .output();
+                    match sudo_result {
+                        Ok(sudo_output) if sudo_output.status.success() => {
+                            log::info!(
+                                "应用 '{}' 卷权限设置成功（通过 sudo）",
+                                micro_app.name
+                            );
+                        }
+                        _ => {
+                            let sudo_stderr = sudo_result
+                                .as_ref()
+                                .map(|o| String::from_utf8_lossy(&o.stderr).to_string())
+                                .unwrap_or_else(|_| "unknown".to_string());
+                            log::warn!(
+                                "应用 '{}' 卷权限设置失败（sudo 也失败）: {}",
+                                micro_app.name,
+                                sudo_stderr.trim()
+                            );
+                            log::warn!(
+                                "请手动执行: sudo bash {}",
+                                script_path.display()
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!(
+                        "无法执行权限脚本: {}，请手动执行: sudo bash {}",
+                        e,
+                        script_path.display()
+                    );
+                }
+            }
+
+            // 清理临时文件
+            let _ = std::fs::remove_file(&script_path);
+        }
+    }
     Ok(())
 }
 

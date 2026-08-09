@@ -197,7 +197,7 @@ run_as_user: "1000:1000"  # Container also runs as UID 1000
 - `uid=0` or `gid=0` (root) triggers a security warning
 - If no volumes are needed, you can still configure `run_as_user` alone for security hardening
 - If using `run_as_user`, it's recommended to also configure matching `permissions.uid/gid`
-- Permission setup happens before container start, requiring appropriate host privileges
+- Permission setup happens automatically during `micro_proxy start` — the tool generates a shell script with `mkdir -p` + `chown` and executes it before `docker compose up`. If chown fails without sudo, it retries with `sudo bash` automatically. If both fail, a warning is logged with the manual command to run.
 - **Path consistency:** The `target` path determines where data is persisted on the container filesystem. Ensure that any data paths configured in `.env` or other config files (e.g., SQLite database path, upload directory, log file location) are located **under** a volume target. Otherwise data will be stored inside the container's ephemeral layer and lost on container restart.
 
 ### 6. Naming & Derivation

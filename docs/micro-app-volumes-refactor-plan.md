@@ -120,7 +120,8 @@ services:
     volumes:
       - ./resume_agent_mongodb/data:/data/db
     user: "999:999"  # 来自 run_as_user
-    # 权限初始化通过 init_container 或外部脚本实现
+    # 权限初始化通过外部脚本实现（generate_permission_init_script），
+    # 在 micro_proxy start 时自动执行（mkdir -p + chown，sudo 回退）
 ```
 
 ---
@@ -138,9 +139,9 @@ services:
 
 ### 七、验收标准
 
-- [ ] micro-app.volumes.yml 不存在时，程序正常运行
-- [ ] micro-app.volumes.yml 存在时，正确读取并应用配置
-- [ ] volume_permissions 能正确设置目录权限
-- [ ] run_as_user 能正确设置容器运行用户
-- [ ] 生成的 docker-compose.yml 符合预期
-- [ ] 现有 micro-app.yml 配置不受影响
+- [x] micro-app.volumes.yml 不存在时，程序正常运行
+- [x] micro-app.volumes.yml 存在时，正确读取并应用配置
+- [x] volume_permissions 能正确设置目录权限（通过 generate_permission_init_script + setup_volume_permissions 在 micro_proxy start 时自动执行）
+- [x] run_as_user 能正确设置容器运行用户
+- [x] 生成的 docker-compose.yml 符合预期
+- [x] 现有 micro-app.yml 配置不受影响

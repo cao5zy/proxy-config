@@ -143,7 +143,9 @@ impl VolumesConfig {
     }
 
     /// 生成权限初始化脚本
-    pub fn generate_permission_init_script(&self) -> Option<String> {
+    ///
+    /// `app_path` 是微应用目录的绝对路径，用于解析 volume source 中的相对路径。
+    pub fn generate_permission_init_script(&self, app_path: &std::path::Path) -> Option<String> {
         if self.volumes.is_empty() {
             log::debug!("没有配置卷，无需生成权限初始化脚本");
             return None;
@@ -156,17 +158,47 @@ impl VolumesConfig {
             if let Some(ref perms) = volume.permissions {
                 has_permission_config = true;
 
+                // 解析 source 路径：如果是相对路径，相对于微应用目录解析
+                let source_path = std::path::Path::new(&volume.source);
+                let absolute_source = if source_path.is_relative() {
+                    // join 后 normalize：移除 "." 组件
+                    let joined = app_path.join(source_path);
+                    let mut normalized = std::path::PathBuf::new();
+                    for component in joined.components() {
+                        if let std::path::Component::CurDir = component {
+                            continue;
+                        }
+                        normalized.push(component);
+                    }
+                    normalized
+                } else {
+                    source_path.to_path_buf()
+                };
+
+                // 先创建目录（确保 Docker 不会以 root 身份自动创建）
+                let mkdir_cmd = format!("mkdir -p \"{}\"", absolute_source.display());
+                commands.push(mkdir_cmd);
+
+                // 然后设置权限
                 let chown_cmd = if perms.recursive {
                     format!(
                         "chown -R {}:{} \"{}\"",
-                        perms.uid, perms.gid, volume.source
+                        perms.uid, perms.gid, absolute_source.display()
                     )
                 } else {
-                    format!("chown {}:{} \"{}\"", perms.uid, perms.gid, volume.source)
+                    format!(
+                        "chown {}:{} \"{}\"",
+                        perms.uid, perms.gid, absolute_source.display()
+                    )
                 };
 
                 commands.push(chown_cmd);
-                log::debug!("添加权限设置命令: {}", commands.last().unwrap());
+                log::debug!(
+                    "添加卷权限设置: {} [uid={}, gid={}]",
+                    absolute_source.display(),
+                    perms.uid,
+                    perms.gid
+                );
             }
         }
 
@@ -177,8 +209,9 @@ impl VolumesConfig {
 
         let script = format!(
             r#"#!/bin/sh
-# Docker 容器权限初始化脚本
+# Docker 容器卷权限初始化脚本
 # 由 proxy-config 自动生成
+# 在容器启动前运行，确保宿主机目录具有正确的权限
 
 set -e
 
@@ -325,6 +358,7 @@ run_as_user: "999:999"
 
     #[test]
     fn test_generate_permission_init_script() {
+        let app_path = std::path::Path::new("/app/test-app");
         let config = VolumesConfig {
             volumes: vec![
                 VolumeConfig {
@@ -349,25 +383,29 @@ run_as_user: "999:999"
             run_as_user: Some("999:999".to_string()),
         };
 
-        let script = config.generate_permission_init_script().unwrap();
+        let script = config.generate_permission_init_script(app_path).unwrap();
         assert!(script.contains("#!/bin/sh"));
-        assert!(script.contains("chown -R 999:999 \"./data\""));
-        assert!(script.contains("chown 1000:1000 \"./logs\""));
+        assert!(script.contains("mkdir -p \"/app/test-app/data\""));
+        assert!(script.contains("chown -R 999:999 \"/app/test-app/data\""));
+        assert!(script.contains("mkdir -p \"/app/test-app/logs\""));
+        assert!(script.contains("chown 1000:1000 \"/app/test-app/logs\""));
     }
 
     #[test]
     fn test_generate_permission_init_script_no_volumes() {
+        let app_path = std::path::Path::new("/app/test-app");
         let config = VolumesConfig {
             volumes: vec![],
             run_as_user: None,
         };
 
-        let script = config.generate_permission_init_script();
+        let script = config.generate_permission_init_script(app_path);
         assert!(script.is_none());
     }
 
     #[test]
     fn test_generate_permission_init_script_no_permissions() {
+        let app_path = std::path::Path::new("/app/test-app");
         let config = VolumesConfig {
             volumes: vec![VolumeConfig {
                 source: "./data".to_string(),
@@ -377,8 +415,30 @@ run_as_user: "999:999"
             run_as_user: None,
         };
 
-        let script = config.generate_permission_init_script();
+        let script = config.generate_permission_init_script(app_path);
         assert!(script.is_none());
+    }
+
+    #[test]
+    fn test_generate_permission_init_script_absolute_path() {
+        let app_path = std::path::Path::new("/app/test-app");
+        let config = VolumesConfig {
+            volumes: vec![VolumeConfig {
+                source: "/home/ubuntu/data/myapp".to_string(),
+                target: "/data".to_string(),
+                permissions: Some(VolumePermissions {
+                    uid: 1000,
+                    gid: 1000,
+                    recursive: true,
+                }),
+            }],
+            run_as_user: Some("1000:1000".to_string()),
+        };
+
+        let script = config.generate_permission_init_script(app_path).unwrap();
+        // 绝对路径不应该被拼接到 app_path 后面
+        assert!(script.contains("mkdir -p \"/home/ubuntu/data/myapp\""));
+        assert!(script.contains("chown -R 1000:1000 \"/home/ubuntu/data/myapp\""));
     }
 
     #[test]
