@@ -139,7 +139,7 @@ run_as_user: "999:999"       # Optional: container runtime user (format: "uid:gi
 |-------|----------|-------------|
 | `source` | Yes | Host path. Relative paths are relative to the generated `docker-compose.yml` location |
 | `target` | Yes | Container-internal path |
-| `permissions` | No | Permission configuration object |
+| `permissions` | No, but **required** when container runs as non-root and needs write access to mounted volumes | Permissions to set on host directory. Without this, the container process may not be able to write to the volume (even with `run_as_user` configured). |
 
 **permissions object:**
 
@@ -196,7 +196,7 @@ run_as_user: "1000:1000"  # Container also runs as UID 1000
 **Important notes:**
 - `uid=0` or `gid=0` (root) triggers a security warning
 - If no volumes are needed, you can still configure `run_as_user` alone for security hardening
-- If using `run_as_user`, it's recommended to also configure matching `permissions.uid/gid`
+- **When volumes are mounted:** if the container runs as a non-root user (whether via `run_as_user` or the image default), you **must** configure `permissions.uid/gid` for each volume that needs write access — otherwise the host directory will remain owned by root and the container process will get "permission denied". The only exception is when the host directory already has correct ownership before deployment.
 - Permission setup happens automatically during `micro_proxy start` — the tool generates a shell script with `mkdir -p` + `chown` and executes it before `docker compose up`. If chown fails without sudo, it retries with `sudo bash` automatically. If both fail, a warning is logged with the manual command to run.
 - **Path consistency:** The `target` path determines where data is persisted on the container filesystem. Ensure that any data paths configured in `.env` or other config files (e.g., SQLite database path, upload directory, log file location) are located **under** a volume target. Otherwise data will be stored inside the container's ephemeral layer and lost on container restart.
 
@@ -411,6 +411,16 @@ EXPOSE 9000
 CMD ["server", "/data"]
 ```
 
+**micro-app.volumes.yml** （必须配置，MinIO 以 UID 1000 运行，需要宿主机目录写入权限）:
+```yaml
+volumes:
+  - source: "./minio-data"
+    target: "/data"
+    permissions:
+      uid: 1000      # MinIO 官方镜像默认 UID
+      gid: 1000
+```
+
 **配置说明：**
 - `routes` 非空时，内部应用通过 nginx 代理，并**自动剥离路由前缀**（例：访问 `/minio/bucket/file`，后端收到 `/bucket/file`）
 - 支持 `nginx_extra_config`、`proxy_connect_timeout` 等配置
@@ -547,7 +557,7 @@ Use the error tables in this document to help users diagnose issues.
 | Is `micro-app.volumes.yml` required? | No, it's optional. Without it, `docker_volumes` will be an empty array and `run_as_user` will be null. |
 | Can I edit `apps-config.yml` manually? | Not recommended. It's regenerated on every `micro_proxy start`. Edit `micro-app.yml` or `micro-app.volumes.yml` instead. |
 | What if `name` fields conflict? | Restructure your micro-app directories. Use different parent directories to distinguish same-named apps. |
-| Must `run_as_user` and `permissions` be configured together? | No, they are independent. You can use either one or both. |
+| Must `run_as_user` and `permissions` be configured together? | They serve different purposes: `run_as_user` controls which UID the container process runs as (Docker Compose `user:` field). `permissions` controls `chown` on the host directory before container startup. If your container runs as non-root and needs to write to mounted volumes, you **must** configure `permissions` — `run_as_user` alone does not fix host directory ownership. |
 | How do I know which user the app runs as? | Check `run_as_user` in `apps-config.yml`. If null, the image's default user is used (often root). |
 
 ---
