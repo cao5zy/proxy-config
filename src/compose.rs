@@ -1,4 +1,3 @@
-
 //! Docker Compose生成模块
 //!
 //! 负责生成docker-compose.yml文件
@@ -33,6 +32,32 @@ pub fn generate_compose_config(
     network_name: &str,
     nginx_host_port: u16,
     env_files: &HashMap<String, String>,
+    web_root: &str,
+    cert_dir: &str,
+    domain: &Option<String>,
+) -> Result<String> {
+    let image_refs = HashMap::new();
+    generate_compose_config_with_images(
+        apps,
+        network_name,
+        nginx_host_port,
+        env_files,
+        &image_refs,
+        web_root,
+        cert_dir,
+        domain,
+    )
+}
+
+/// 生成指定镜像引用的 docker-compose.yml 配置。
+///
+/// `image_refs` 中未出现的应用继续使用旧的 `<app>:latest`，以便旧状态迁移前仍可启动。
+pub fn generate_compose_config_with_images(
+    apps: &[AppConfig],
+    network_name: &str,
+    nginx_host_port: u16,
+    env_files: &HashMap<String, String>,
+    image_refs: &HashMap<String, String>,
     web_root: &str,
     cert_dir: &str,
     domain: &Option<String>,
@@ -99,7 +124,8 @@ pub fn generate_compose_config(
     for app in apps {
         // 获取该应用的 .env 文件路径
         let env_file = env_files.get(&app.name).cloned();
-        let app_service = generate_app_service(app, network_name, env_file);
+        let image_ref = image_refs.get(&app.name).map(String::as_str);
+        let app_service = generate_app_service(app, network_name, env_file, image_ref);
         compose.services.insert(
             serde_yaml::Value::String(app.container_name.clone()),
             serde_yaml::Value::Mapping(app_service),
@@ -279,11 +305,14 @@ fn generate_app_service(
     app: &AppConfig,
     network_name: &str,
     env_file: Option<String>,
+    image_ref: Option<&str>,
 ) -> serde_yaml::Mapping {
     let mut service = serde_yaml::Mapping::new();
 
     // 镜像名称（使用应用名称）
-    let image_name = format!("{}:latest", app.name);
+    let image_name = image_ref
+        .map(ToString::to_string)
+        .unwrap_or_else(|| format!("{}:latest", app.name));
     service.insert(
         serde_yaml::Value::String("image".to_string()),
         serde_yaml::Value::String(image_name),
@@ -453,6 +482,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_generate_compose_config_uses_explicit_image_reference() {
+        let apps = vec![AppConfig {
+            name: "api".to_string(),
+            routes: vec!["/api".to_string()],
+            container_name: "api".to_string(),
+            container_port: 3000,
+            app_type: AppType::Api,
+            description: None,
+            nginx_extra_config: None,
+            path: None,
+            docker_volumes: vec![],
+            run_as_user: None,
+            proxy_connect_timeout: None,
+            proxy_read_timeout: None,
+            proxy_send_timeout: None,
+        }];
+        let mut images = HashMap::new();
+        images.insert("api".to_string(), "api:sha-0123456789ab".to_string());
+        let config = generate_compose_config_with_images(
+            &apps,
+            "test-network",
+            8080,
+            &HashMap::new(),
+            &images,
+            "/var/www/html",
+            "/etc/nginx/certs",
+            &None,
+        )
+        .unwrap();
+        assert!(config.contains("image: api:sha-0123456789ab"));
+        assert!(!config.contains("image: api:latest"));
+    }
+
+    #[test]
     fn test_generate_compose_config() {
         let apps = vec![
             AppConfig {
@@ -562,7 +625,7 @@ mod tests {
             proxy_send_timeout: None,
         }];
 
-        let mut env_files = HashMap::new();
+        let env_files = HashMap::new();
 
         // 创建临时证书文件
         let temp_dir = tempfile::tempdir().unwrap();

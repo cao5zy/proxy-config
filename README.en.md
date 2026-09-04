@@ -85,16 +85,19 @@ Create a `micro-app.yml` configuration file in each micro-application directory:
 cp micro-app.yml.example ./micro-apps/my-app/micro-app.yml
 ```
 
-### 3. Start Micro-Applications
+### 3. Build and deploy micro-applications
 
 ```bash
-# Start all micro-applications
-micro_proxy start
+# Build images only; running services are unaffected
+micro_proxy build
 
-# Force rebuild all images
-micro_proxy start --force-rebuild
+# Deploy a candidate image printed by build
+micro_proxy deploy my-app --image my-app:sha-0123456789ab
 
-# Show verbose logs
+# Roll back without rebuilding source
+micro_proxy rollback my-app
+
+# Start selected active images without scanning source or building
 micro_proxy start -v
 ```
 
@@ -115,12 +118,27 @@ curl http://localhost/api
 ### start - Start Micro-Applications
 
 ```bash
-micro_proxy start [options]
+micro_proxy start
 ```
 
-Options:
-- `-c, --config <path>`: Specify configuration file path (default: ./proxy-config.yml)
-- `--force-rebuild`: Force rebuild all images
+Starts the selected active images from deployment state; it does not scan source or build images.
+
+### build - Build candidate images
+
+```bash
+micro_proxy build [APP...] [--no-cache]
+```
+
+Builds and records candidate images without changing containers, Nginx, or traffic. Images use immutable `app:sha-<hash>` tags.
+
+### deploy / rollback - Switch or roll back a version
+
+```bash
+micro_proxy deploy <APP> --image <IMAGE>
+micro_proxy rollback <APP>
+```
+
+Deployment starts and health-checks a candidate, reloads Nginx after it is ready, then stops the old container. The old version remains in service if the candidate fails.
 
 ### stop - Stop Micro-Applications
 

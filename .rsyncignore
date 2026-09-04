@@ -3,11 +3,23 @@ target
 *.log
 node_modules
 Cargo.lock
-proxy-config.yml
-docker-compose.yml
 .qoder
 docs
 assets
 *.md
 data
+
+xiandai-gudai-data
+resume_agent_mongodb
+
+# 服务器专属配置
+proxy-config.yml
+
+# micro_proxy 运行时生成的配置与状态
+apps-config.yml
+proxy-config.state
+proxy-config.state.deployments.yml
+nginx.conf
+docker-compose.yml
+network-addresses.txt
 

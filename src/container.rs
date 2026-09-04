@@ -241,6 +241,37 @@ pub fn is_container_running(container_name: &str) -> Result<bool> {
     Ok(running)
 }
 
+/// 等待容器健康检查通过。没有定义 HEALTHCHECK 的镜像以运行状态作为就绪条件。
+pub fn is_container_healthy(container_name: &str) -> Result<bool> {
+    let output = Command::new("docker")
+        .args([
+            "inspect",
+            "--format",
+            "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}",
+            container_name,
+        ])
+        .output()
+        .map_err(|e| Error::Container(format!("检查容器健康状态失败: {}", e)))?;
+    if !output.status.success() {
+        return Ok(false);
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim() == "healthy"
+        || String::from_utf8_lossy(&output.stdout).trim() == "running")
+}
+
+/// 平滑重载正在运行的 Nginx 配置。
+pub fn reload_nginx() -> Result<()> {
+    let status = Command::new("docker")
+        .args(["exec", "proxy-nginx", "nginx", "-s", "reload"])
+        .status()
+        .map_err(|e| Error::Container(format!("重载 Nginx 失败: {}", e)))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(Error::Container("Nginx reload 返回失败状态".to_string()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,12 +1,14 @@
-
 //! 命令行接口模块
 //!
 //! 负责提供命令行交互接口
 
 use crate::config::{AppType, ProxyConfig};
 use crate::container;
+use crate::deployment::{
+    active_runtime_apps, deployment_state_path, image_reference, runtime_apps_with_candidate,
+    DeploymentStore,
+};
 use crate::discovery::{discover_micro_apps, get_micro_app_names, to_app_configs, MicroApp};
-use crate::dockerfile;
 use crate::network::{generate_network_list, NetworkAddressInfo};
 use crate::nginx;
 use crate::script;
@@ -42,11 +44,23 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// 启动所有微应用
-    Start {
-        /// 强制重新构建所有镜像
+    Start,
+    /// 构建镜像并登记为候选版本，不影响运行中的站点
+    Build {
+        /// 指定要构建的应用；省略时构建全部应用
+        apps: Vec<String>,
+        /// 禁用 Docker 构建缓存
         #[arg(long)]
-        force_rebuild: bool,
+        no_cache: bool,
     },
+    /// 将已构建的候选镜像部署到指定应用
+    Deploy {
+        app: String,
+        #[arg(long)]
+        image: String,
+    },
+    /// 回滚指定应用到上一活动镜像
+    Rollback { app: String },
     /// 停止所有微应用
     Stop,
     /// 清理所有微应用
@@ -95,9 +109,10 @@ pub fn run(args: &[String]) -> Result<()> {
 
     // 执行子命令
     match cli.command {
-        Commands::Start { force_rebuild } => {
-            execute_start(&config, force_rebuild)?;
-        }
+        Commands::Start => execute_start(&config)?,
+        Commands::Build { apps, no_cache } => execute_build(&config, &apps, no_cache)?,
+        Commands::Deploy { app, image } => execute_deploy(&config, &app, &image)?,
+        Commands::Rollback { app } => execute_rollback(&config, &app)?,
         Commands::Stop => {
             execute_stop(&config)?;
         }
@@ -223,15 +238,16 @@ fn get_micro_app_info(
             };
 
             // 对于 Internal 类型，从 micro_app_config 加载配置
-            let micro_app_config = crate::micro_app_config::MicroAppConfig::from_file(path_buf.join("micro-app.yml"))?;
-            
+            let micro_app_config =
+                crate::micro_app_config::MicroAppConfig::from_file(path_buf.join("micro-app.yml"))?;
+
             // 加载卷配置
             log::debug!("尝试加载 Internal 应用 '{}' 的卷配置", app_config.name);
             let volumes_config = VolumesConfig::from_file(path_buf.join("micro-app.volumes.yml"))?;
-            
+
             // 验证卷配置
             volumes_config.validate(&app_config.name)?;
-            
+
             Ok(MicroApp {
                 name: app_config.name.clone(),
                 path: path_buf,
@@ -293,202 +309,246 @@ fn calculate_relative_path(base_path: &PathBuf, target_path: &PathBuf) -> Result
     Ok(relative_str)
 }
 
-/// 执行启动命令
-fn execute_start(config: &ProxyConfig, force_rebuild: bool) -> Result<()> {
-    log::info!("开始启动微应用...");
-
-    // 当 force_rebuild 为 true 时，启用 no_cache 以确保完全重建
-    let no_cache = force_rebuild;
-    if no_cache {
-        log::info!("强制重建模式已启用，将使用 --no-cache 参数构建镜像");
-    }
-
-    // 1. 扫描微应用（从 micro-app.yml 发现）
-    let micro_apps = discover_micro_apps(&config.scan_dirs)?;
-    let discovered_names = get_micro_app_names(&micro_apps);
-
-    // 2. 转换为 AppConfig 并保存到动态配置
-    let apps = to_app_configs(&micro_apps);
-    config.save_apps(&apps)?;
-    log::info!("动态配置已保存到: {}", config.apps_config_path);
-
-    // 3. 验证配置
-    config.validate(&apps, &discovered_names)?;
-
-    // 4. 创建Docker网络
-    log::info!("创建Docker网络: {}", config.network_name);
+/// `start` 只恢复已选择的活动镜像，不扫描源码，也不构建镜像。
+fn execute_start(config: &ProxyConfig) -> Result<()> {
+    let apps = config.load_required_apps()?;
+    let deployments = load_deployments_with_legacy_migration(config, &apps)?;
+    let (runtime_apps, images) = active_runtime_apps(&apps, deployments.states())?;
+    write_runtime_configs(config, &runtime_apps, &images)?;
+    deployments.save()?;
     crate::network::create_network(&config.network_name)?;
-
-    // 5. 初始化状态管理器
-    let mut state_manager = StateManager::new(&config.state_file_path);
-    state_manager.load()?;
-
-    // 6. 处理每个配置的应用
-    let mut network_infos = Vec::new();
-    let mut env_files = HashMap::new();
-
-    // 获取当前工作目录（docker-compose.yml 所在目录）
-    let current_dir = std::env::current_dir().map_err(|e| {
-        log::error!("获取当前工作目录失败: {}", e);
-        Error::Config(format!("获取当前工作目录失败: {}", e))
-    })?;
-
-    log::debug!("当前工作目录: {:?}", current_dir);
-
-    for app_config in &apps {
-        log::info!("处理应用: {} ({:?})", app_config.name, app_config.app_type);
-
-        // 获取微应用信息
-        let micro_app = get_micro_app_info(app_config, &micro_apps)?;
-
-        // 解析Dockerfile
-        let dockerfile_info = dockerfile::parse_dockerfile(&micro_app.dockerfile)?;
-        if dockerfile_info.exposed_ports.is_empty() {
-            log::warn!("应用 '{}' 的Dockerfile中没有EXPOSE指令", app_config.name);
-        }
-
-        // 计算目录hash
-        let current_hash = calculate_directory_hash(&micro_app.path)?;
-
-        // 判断是否需要重新构建
-        let needs_rebuild =
-            force_rebuild || state_manager.needs_rebuild(&app_config.name, &current_hash);
-
-        if needs_rebuild {
-            log::info!("应用 '{}' 需要重新构建", app_config.name);
-
-            // 执行setup脚本
-            if let Some(ref setup_script) = micro_app.setup_script {
-                log::info!("执行setup脚本: {:?}", setup_script);
-                script::execute_setup_script(setup_script, &micro_app.path)?;
-            }
-
-            // 构建镜像（当 force_rebuild 为 true 时使用 no_cache）
-            let image_name = format!("{}:latest", app_config.name);
-            builder::build_image(
-                &image_name,
-                &micro_app.dockerfile,
-                &micro_app.path,
-                Some(&micro_app.env_file),
-                no_cache,
-            )?;
-
-            // 更新状态
-            state_manager.update_state(&app_config.name, current_hash, true);
-        } else {
-            log::info!("应用 '{}' 无需重新构建", app_config.name);
-        }
-
-        // 收集环境变量文件路径（如果存在）
-        if micro_app.env_file.exists() {
-            log::debug!(
-                "应用 '{}' 的 .env 文件存在: {:?}",
-                app_config.name,
-                micro_app.env_file
-            );
-            // 计算相对于当前工作目录的相对路径
-            let relative_env_path = calculate_relative_path(&current_dir, &micro_app.env_file)?;
-            env_files.insert(app_config.name.clone(), relative_env_path);
-            log::info!(
-                "为应用 '{}' 添加环境变量文件: {}",
-                app_config.name,
-                env_files.get(&app_config.name).unwrap()
-            );
-        } else {
-            log::debug!("应用 '{}' 的 .env 文件不存在", app_config.name);
-        }
-
-        // 创建网络地址信息
-        let network_info = NetworkAddressInfo::new(
-            app_config.name.clone(),
-            app_config.container_name.clone(),
-            app_config.container_port,
-            &app_config.routes,
-            config.nginx_host_port,
-            &app_config.app_type,
-        );
-        network_infos.push(network_info);
-    }
-
-    // 7. 生成nginx配置
-    log::info!("生成nginx配置...");
-    let nginx_config = nginx::generate_nginx_config(
-        &apps,
-        &config.web_root,
-        &config.cert_dir,
-        &config.domain,
-    )?;
-    nginx::save_nginx_config(&nginx_config, &config.nginx_config_path)?;
-
-    // 8. 生成docker-compose配置
-    log::info!("生成docker-compose配置...");
-    let compose_config = compose::generate_compose_config(
-        &apps,
-        &config.network_name,
-        config.nginx_host_port,
-        &env_files,
-        &config.web_root,
-        &config.cert_dir,
-        &config.domain,
-    )?;
-    compose::save_compose_config(&compose_config, &config.compose_config_path)?;
-
-    // 9. 生成网络地址列表
-    log::info!("生成网络地址列表...");
+    let network_infos = runtime_apps
+        .iter()
+        .map(|app| {
+            NetworkAddressInfo::new(
+                app.name.clone(),
+                app.container_name.clone(),
+                app.container_port,
+                &app.routes,
+                config.nginx_host_port,
+                &app.app_type,
+            )
+        })
+        .collect::<Vec<_>>();
     generate_network_list(
         &network_infos,
         &config.network_name,
         config.nginx_host_port,
         &config.network_list_path,
     )?;
+    let args = vec!["-f", &config.compose_config_path, "up", "-d"];
+    run_docker_compose(&args)
+}
 
-    // 10. 保存状态
+/// 构建镜像并登记候选版本；此操作不生成运行配置，也不操作容器。
+fn execute_build(config: &ProxyConfig, requested_apps: &[String], no_cache: bool) -> Result<()> {
+    let micro_apps = discover_micro_apps(&config.scan_dirs)?;
+    let discovered_names = get_micro_app_names(&micro_apps);
+    let apps = to_app_configs(&micro_apps);
+    config.validate(&apps, &discovered_names)?;
+    config.save_apps(&apps)?;
+    let mut deployments = DeploymentStore::new(deployment_state_path(&config.state_file_path));
+    deployments.load()?;
+    let mut state_manager = StateManager::new(&config.state_file_path);
+    state_manager.load()?;
+    for app in &apps {
+        if !requested_apps.is_empty() && !requested_apps.contains(&app.name) {
+            continue;
+        }
+        let micro_app = get_micro_app_info(app, &micro_apps)?;
+        let source_hash = calculate_directory_hash(&micro_app.path)?;
+        let image = image_reference(&app.name, &source_hash);
+        if !builder::image_exists(&image)? {
+            if let Some(script_path) = &micro_app.setup_script {
+                script::execute_setup_script(script_path, &micro_app.path)?;
+            }
+            builder::build_image(
+                &image,
+                &micro_app.dockerfile,
+                &micro_app.path,
+                Some(&micro_app.env_file),
+                no_cache,
+            )?;
+        }
+        state_manager.update_state(&app.name, source_hash, true);
+        deployments.set_candidate(&app.name, image.clone());
+        println!("已构建候选镜像: {}", image);
+    }
+    if requested_apps
+        .iter()
+        .any(|name| !apps.iter().any(|app| &app.name == name))
+    {
+        return Err(Error::Config("指定的应用未被发现".to_string()));
+    }
     state_manager.save()?;
+    deployments.save()
+}
 
-    // 10.5. 设置卷权限（在容器启动前，确保宿主机目录权限正确）
-    // 如果 Docker 以 root 自动创建了不存在的 bind-mount 源目录，
-    // 容器内的非 root 用户将无法写入。这里提前创建目录并设置权限。
-    setup_volume_permissions(&micro_apps)?;
-
-    // 11. 停止并删除现有容器（确保使用最新配置）
-    log::info!("停止并删除现有容器...");
-    let down_args = vec!["-f", &config.compose_config_path, "down"];
-    // 忽略down命令的错误，因为可能容器不存在
-    let _ = run_docker_compose(&down_args);
-
-    // 12. 启动容器
-    log::info!("启动容器...");
-    let compose_args = vec!["-f", &config.compose_config_path, "up", "-d"];
-    run_docker_compose(&compose_args)?;
-
-    log::info!("所有微应用启动成功！");
-    log::info!("Nginx统一入口: http://localhost:{}", config.nginx_host_port);
-
+fn execute_deploy(config: &ProxyConfig, app_name: &str, image: &str) -> Result<()> {
+    let apps = config.load_apps()?;
+    let target = config
+        .get_app_config(&apps, app_name)
+        .ok_or_else(|| Error::Config(format!("未找到应用: {}", app_name)))?;
+    if !builder::image_exists(image)? {
+        return Err(Error::Build(format!("镜像不存在: {}", image)));
+    }
+    let app_path = target.path.as_ref().ok_or_else(|| {
+        Error::Config(format!("应用 '{}' 缺少路径配置，无法初始化卷权限", app_name))
+    })?;
+    let app_path = PathBuf::from(app_path);
+    let volumes_config = VolumesConfig::from_file(app_path.join("micro-app.volumes.yml"))?;
+    volumes_config.validate(app_name)?;
+    setup_volume_permissions(app_name, &app_path, &volumes_config)?;
+    let mut deployments = load_deployments_with_legacy_migration(config, &apps)?;
+    deployments.set_candidate(app_name, image.to_string());
+    let old_container = deployments
+        .state(app_name)
+        .and_then(|state| state.active_container.clone());
+    let candidate_container =
+        crate::deployment::candidate_container_name(&target.container_name, image);
+    if old_container.as_deref() == Some(candidate_container.as_str()) {
+        return Err(Error::State(format!(
+            "镜像 '{}' 已是应用 '{}' 的活动版本",
+            image, app_name
+        )));
+    }
+    let (runtime_apps, images, _) =
+        runtime_apps_with_candidate(&apps, deployments.states(), app_name, image)?;
+    write_runtime_configs(config, &runtime_apps, &images)?;
+    crate::network::create_network(&config.network_name)?;
+    let args = vec![
+        "-f",
+        &config.compose_config_path,
+        "up",
+        "-d",
+        "--no-deps",
+        &candidate_container,
+    ];
+    run_docker_compose(&args)?;
+    if !wait_for_healthy(&candidate_container)? {
+        container::remove_container(&candidate_container)?;
+        let (active_apps, active_images) = active_runtime_apps(&apps, deployments.states())?;
+        write_runtime_configs(config, &active_apps, &active_images)?;
+        return Err(Error::Container(format!(
+            "候选容器 '{}' 未通过健康检查",
+            candidate_container
+        )));
+    }
+    let nginx_result = if container::is_container_running("proxy-nginx")? {
+        container::reload_nginx()
+    } else {
+        let args = vec!["-f", &config.compose_config_path, "up", "-d", "nginx"];
+        run_docker_compose(&args)
+    };
+    if let Err(error) = nginx_result {
+        container::remove_container(&candidate_container)?;
+        let (active_apps, active_images) = active_runtime_apps(&apps, deployments.states())?;
+        write_runtime_configs(config, &active_apps, &active_images)?;
+        return Err(error);
+    }
+    deployments.activate(app_name, image.to_string(), candidate_container.clone())?;
+    deployments.save()?;
+    if let Some(old) = old_container {
+        container::remove_container(&old)?;
+    }
+    println!("应用 '{}' 已切换至镜像 {}", app_name, image);
     Ok(())
 }
 
-/// 在容器启动前设置卷权限
+fn execute_rollback(config: &ProxyConfig, app_name: &str) -> Result<()> {
+    let apps = config.load_apps()?;
+    let deployments = load_deployments_with_legacy_migration(config, &apps)?;
+    let image = deployments
+        .state(app_name)
+        .and_then(|state| state.previous_image.clone())
+        .ok_or_else(|| Error::State(format!("应用 '{}' 没有可回滚镜像", app_name)))?;
+    execute_deploy(config, app_name, &image)
+}
+
+fn load_deployments_with_legacy_migration(
+    config: &ProxyConfig,
+    apps: &[crate::config::AppConfig],
+) -> Result<DeploymentStore> {
+    let mut deployments = DeploymentStore::new(deployment_state_path(&config.state_file_path));
+    deployments.load()?;
+    let mut changed = false;
+    for app in apps {
+        changed |= deployments.migrate_legacy(
+            &app.name,
+            &app.container_name,
+            builder::image_exists(&format!("{}:latest", app.name))?,
+        );
+    }
+    if changed {
+        deployments.save()?;
+    }
+    Ok(deployments)
+}
+
+fn collect_env_files(apps: &[crate::config::AppConfig]) -> Result<HashMap<String, String>> {
+    let current_dir = std::env::current_dir()
+        .map_err(|e| Error::Config(format!("获取当前工作目录失败: {}", e)))?;
+    let mut env_files = HashMap::new();
+    for app in apps {
+        if let Some(path) = &app.path {
+            let env = PathBuf::from(path).join(".env");
+            if env.exists() {
+                env_files.insert(
+                    app.name.clone(),
+                    calculate_relative_path(&current_dir, &env)?,
+                );
+            }
+        }
+    }
+    Ok(env_files)
+}
+
+fn write_runtime_configs(
+    config: &ProxyConfig,
+    apps: &[crate::config::AppConfig],
+    images: &HashMap<String, String>,
+) -> Result<()> {
+    let nginx_config =
+        nginx::generate_nginx_config(apps, &config.web_root, &config.cert_dir, &config.domain)?;
+    nginx::save_nginx_config(&nginx_config, &config.nginx_config_path)?;
+    let compose_config = compose::generate_compose_config_with_images(
+        apps,
+        &config.network_name,
+        config.nginx_host_port,
+        &collect_env_files(apps)?,
+        images,
+        &config.web_root,
+        &config.cert_dir,
+        &config.domain,
+    )?;
+    compose::save_compose_config(&compose_config, &config.compose_config_path)
+}
+
+fn wait_for_healthy(container_name: &str) -> Result<bool> {
+    for _ in 0..30 {
+        if container::is_container_healthy(container_name)? {
+            return Ok(true);
+        }
+        std::thread::sleep(std::time::Duration::from_secs(2));
+    }
+    Ok(false)
+}
+
+/// 在目标容器启动前设置卷权限。
 ///
-/// 对每个配置了卷权限的微应用，生成权限初始化脚本并执行。
+/// 此函数只能由 deploy 调用；build 不得修改宿主机卷数据。
 /// 先尝试直接执行，如果 chown 失败则尝试 sudo。
-fn setup_volume_permissions(micro_apps: &[MicroApp]) -> Result<()> {
-    for micro_app in micro_apps {
-        let app_path = &micro_app.path;
-        if let Some(script) = micro_app
-            .volumes_config
-            .generate_permission_init_script(app_path)
-        {
-            log::info!(
-                "设置应用 '{}' 的卷权限...",
-                micro_app.name
-            );
+fn setup_volume_permissions(
+    app_name: &str,
+    app_path: &std::path::Path,
+    volumes_config: &VolumesConfig,
+) -> Result<()> {
+    if let Some(script) = volumes_config.generate_permission_init_script(app_path) {
+            log::info!("设置应用 '{}' 的卷权限...", app_name);
 
             // 将脚本写入临时文件
             let temp_dir = std::env::temp_dir();
-            let script_path = temp_dir.join(format!(
-                "micro_proxy_vol_perms_{}.sh",
-                micro_app.name
-            ));
+            let script_path = temp_dir.join(format!("micro_proxy_vol_perms_{}.sh", app_name));
             std::fs::write(&script_path, &script).map_err(|e| {
                 log::error!("写入权限初始化脚本失败: {}", e);
                 Error::Config(format!("写入权限初始化脚本失败: {}", e))
@@ -498,8 +558,7 @@ fn setup_volume_permissions(micro_apps: &[MicroApp]) -> Result<()> {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755))
-                    .ok();
+                std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755)).ok();
             }
 
             // 执行脚本，先尝试直接运行，失败则尝试 sudo
@@ -509,10 +568,7 @@ fn setup_volume_permissions(micro_apps: &[MicroApp]) -> Result<()> {
 
             match result {
                 Ok(output) if output.status.success() => {
-                    log::info!(
-                        "应用 '{}' 卷权限设置成功",
-                        micro_app.name
-                    );
+                    log::info!("应用 '{}' 卷权限设置成功", app_name);
                 }
                 Ok(output) => {
                     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -526,10 +582,7 @@ fn setup_volume_permissions(micro_apps: &[MicroApp]) -> Result<()> {
                         .output();
                     match sudo_result {
                         Ok(sudo_output) if sudo_output.status.success() => {
-                            log::info!(
-                                "应用 '{}' 卷权限设置成功（通过 sudo）",
-                                micro_app.name
-                            );
+                            log::info!("应用 '{}' 卷权限设置成功（通过 sudo）", app_name);
                         }
                         _ => {
                             let sudo_stderr = sudo_result
@@ -538,13 +591,10 @@ fn setup_volume_permissions(micro_apps: &[MicroApp]) -> Result<()> {
                                 .unwrap_or_else(|_| "unknown".to_string());
                             log::warn!(
                                 "应用 '{}' 卷权限设置失败（sudo 也失败）: {}",
-                                micro_app.name,
+                                app_name,
                                 sudo_stderr.trim()
                             );
-                            log::warn!(
-                                "请手动执行: sudo bash {}",
-                                script_path.display()
-                            );
+                            log::warn!("请手动执行: sudo bash {}", script_path.display());
                         }
                     }
                 }
@@ -559,7 +609,6 @@ fn setup_volume_permissions(micro_apps: &[MicroApp]) -> Result<()> {
 
             // 清理临时文件
             let _ = std::fs::remove_file(&script_path);
-        }
     }
     Ok(())
 }
@@ -606,11 +655,14 @@ fn execute_clean(config: &ProxyConfig, force: bool, clean_network: bool) -> Resu
     // 加载动态配置以获取应用列表
     let apps = config.load_apps()?;
 
-    // 删除镜像
-    log::info!("删除镜像...");
-    for app_config in &apps {
-        let image_name = format!("{}:latest", app_config.name);
-        builder::remove_image(&image_name)?;
+    // 清理未部署的候选镜像；活动和可回滚镜像必须保留。
+    log::info!("清理未部署的候选镜像...");
+    let mut deployments = DeploymentStore::new(deployment_state_path(&config.state_file_path));
+    deployments.load()?;
+    for state in deployments.states().values() {
+        if let Some(image) = &state.candidate_image {
+            builder::remove_image(image)?;
+        }
     }
 
     // 执行clean脚本
@@ -625,18 +677,6 @@ fn execute_clean(config: &ProxyConfig, force: bool, clean_network: bool) -> Resu
                 log::warn!("执行clean脚本失败: {}", e);
             }
         }
-    }
-
-    // 删除状态文件
-    log::info!("删除状态文件...");
-    if std::fs::remove_file(&config.state_file_path).is_ok() {
-        log::info!("状态文件已删除");
-    }
-
-    // 删除动态配置文件
-    log::info!("删除动态配置文件...");
-    if std::fs::remove_file(&config.apps_config_path).is_ok() {
-        log::info!("动态配置文件已删除");
     }
 
     // 删除网络
@@ -670,16 +710,32 @@ fn execute_status(config: &ProxyConfig) -> Result<()> {
         println!();
     }
 
-    // 检查镜像状态
-    println!("=== 镜像状态 ===\n");
-    for app_config in &apps {
-        let image_name = format!("{}:latest", app_config.name);
-        let exists = builder::image_exists(&image_name)?;
-        println!(
-            "镜像: {} - {}",
-            image_name,
-            if exists { "存在" } else { "不存在" }
-        );
+    println!("=== 部署镜像状态 ===\n");
+    let deployments = load_deployments_with_legacy_migration(config, &apps)?;
+    for app in &apps {
+        println!("应用: {}", app.name);
+        if let Some(state) = deployments.state(&app.name) {
+            for (label, image) in [
+                ("活动", &state.active_image),
+                ("可回滚", &state.previous_image),
+                ("候选", &state.candidate_image),
+            ] {
+                if let Some(image) = image {
+                    println!(
+                        "  {}镜像: {} ({})",
+                        label,
+                        image,
+                        if builder::image_exists(image)? {
+                            "存在"
+                        } else {
+                            "不存在"
+                        }
+                    );
+                }
+            }
+        } else {
+            println!("  尚未部署");
+        }
     }
 
     Ok(())
@@ -766,5 +822,20 @@ mod tests {
         let cli = Cli::parse_from(&args);
         assert!(cli.verbose);
         assert!(matches!(cli.command, Commands::Status));
+    }
+
+    #[test]
+    fn test_cli_parse_build_and_deploy() {
+        let build = Cli::parse_from(["micro_proxy", "build", "api", "--no-cache"]);
+        assert!(matches!(build.command, Commands::Build { apps, no_cache } if apps == ["api"] && no_cache));
+
+        let deploy = Cli::parse_from([
+            "micro_proxy",
+            "deploy",
+            "api",
+            "--image",
+            "api:sha-0123456789ab",
+        ]);
+        assert!(matches!(deploy.command, Commands::Deploy { app, image } if app == "api" && image == "api:sha-0123456789ab"));
     }
 }

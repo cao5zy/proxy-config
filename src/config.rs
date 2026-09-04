@@ -235,6 +235,20 @@ impl ProxyConfig {
         Ok(apps_config.apps)
     }
 
+    /// 加载启动所必需的动态应用配置。
+    ///
+    /// 与 `load_apps` 不同，缺失的生成文件不能被解释为空应用，
+    /// 否则会生成只包含 Nginx 的 Compose 配置。
+    pub fn load_required_apps(&self) -> Result<Vec<AppConfig>> {
+        if !std::path::Path::new(&self.apps_config_path).exists() {
+            return Err(Error::Config(format!(
+                "动态配置文件不存在: {:?}。为保护正在运行的应用，start 已中止；请先恢复该文件，或运行 micro_proxy build 重新生成。",
+                self.apps_config_path
+            )));
+        }
+        self.load_apps()
+    }
+
     /// 保存 apps 配置到 apps_config_path
     pub fn save_apps(&self, apps: &[AppConfig]) -> Result<()> {
         let apps_config = AppsConfig {
@@ -457,6 +471,26 @@ app_type: internal
             domain: None,
         };
         assert_eq!(config.cert_dir, "/etc/nginx/certs");
+    }
+
+    #[test]
+    fn test_load_required_apps_returns_error_when_generated_file_is_missing() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = ProxyConfig {
+            scan_dirs: vec!["./apps".to_string()],
+            apps_config_path: temp_dir.path().join("missing-apps.yml").to_string_lossy().to_string(),
+            nginx_config_path: "./nginx.conf".to_string(),
+            compose_config_path: "./docker-compose.yml".to_string(),
+            state_file_path: "./state".to_string(),
+            network_list_path: "./network.txt".to_string(),
+            network_name: "test-network".to_string(),
+            nginx_host_port: 8080,
+            web_root: default_web_root(),
+            cert_dir: default_cert_dir(),
+            domain: None,
+        };
+
+        assert!(config.load_required_apps().is_err());
     }
 
     #[test]

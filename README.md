@@ -85,16 +85,19 @@ cp proxy-config.yml.example proxy-config.yml
 cp micro-app.yml.example ./micro-apps/my-app/micro-app.yml
 ```
 
-### 3. 启动微应用
+### 3. 构建并部署微应用
 
 ```bash
-# 启动所有微应用
-micro_proxy start
+# 仅构建镜像，不影响正在运行的站点
+micro_proxy build
 
-# 强制重新构建所有镜像
-micro_proxy start --force-rebuild
+# 部署 build 输出的候选镜像（从 build 的输出复制镜像引用）
+micro_proxy deploy my-app --image my-app:sha-0123456789ab
 
-# 显示详细日志
+# 回滚到上一部署版本，不重新构建源码
+micro_proxy rollback my-app
+
+# 按活动部署状态启动或恢复容器，不扫描源码、不构建镜像
 micro_proxy start -v
 ```
 
@@ -115,12 +118,27 @@ curl http://localhost/api
 ### start - 启动微应用
 
 ```bash
-micro_proxy start [options]
+micro_proxy start
 ```
 
-选项：
-- `-c, --config <path>`: 指定配置文件路径（默认：./proxy-config.yml）
-- `--force-rebuild`: 强制重新构建所有镜像
+按部署状态启动已选择的活动镜像；不会扫描源码或隐式构建镜像。
+
+### build - 构建候选镜像
+
+```bash
+micro_proxy build [APP...] [--no-cache]
+```
+
+只构建镜像并登记候选版本，不改变容器、Nginx 或流量。镜像使用不可变的 `app:sha-<哈希>` 标签。
+
+### deploy / rollback - 切换或回滚版本
+
+```bash
+micro_proxy deploy <APP> --image <IMAGE>
+micro_proxy rollback <APP>
+```
+
+部署会先启动候选容器并等待健康检查，通过后平滑重载 Nginx，最后停止旧容器；失败时旧版本保持运行。
 
 ### stop - 停止微应用
 
