@@ -516,3 +516,5 @@ If you encounter any issues while using this tool, feel free to submit an Issue.
 
 If you'd like to follow the latest project updates or read related technical articles, feel free to follow my WeChat Official Account:
 ![WeChat QR Code](./assets/wechat-id.png)]
+
+My Website: [craftaidhub.com](https://www.craftaidhub.com/)

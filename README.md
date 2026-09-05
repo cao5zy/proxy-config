@@ -547,4 +547,6 @@ proxy-config/
 如果你在使用过程中遇到问题，欢迎提交 Issue。
 
 如果你想关注项目的最新动态，或阅读相关的技术文章，欢迎关注我的微信公众号：
-![公众号二维码](./assets/wechat-id.png)]
+![公众号二维码](./assets/wechat-id.png)
+
+我的个人网站: [craftaidhub.com](https://www.craftaidhub.com/)
