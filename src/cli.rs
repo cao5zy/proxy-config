@@ -20,6 +20,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
 
+const HEALTHCHECK_POLL_INTERVAL_SECS: u64 = 2;
+
 /// micro_proxy - 微应用管理工具
 #[derive(Parser, Debug)]
 #[command(name = "micro_proxy")]
@@ -58,6 +60,9 @@ enum Commands {
         app: String,
         #[arg(long)]
         image: String,
+        /// 候选容器仍在运行但未通过健康检查时，仍继续切换流量
+        #[arg(long)]
+        force: bool,
     },
     /// 回滚指定应用到上一活动镜像
     Rollback { app: String },
@@ -111,7 +116,7 @@ pub fn run(args: &[String]) -> Result<()> {
     match cli.command {
         Commands::Start => execute_start(&config)?,
         Commands::Build { apps, no_cache } => execute_build(&config, &apps, no_cache)?,
-        Commands::Deploy { app, image } => execute_deploy(&config, &app, &image)?,
+        Commands::Deploy { app, image, force } => execute_deploy(&config, &app, &image, force)?,
         Commands::Rollback { app } => execute_rollback(&config, &app)?,
         Commands::Stop => {
             execute_stop(&config)?;
@@ -384,7 +389,7 @@ fn execute_build(config: &ProxyConfig, requested_apps: &[String], no_cache: bool
     deployments.save()
 }
 
-fn execute_deploy(config: &ProxyConfig, app_name: &str, image: &str) -> Result<()> {
+fn execute_deploy(config: &ProxyConfig, app_name: &str, image: &str, force: bool) -> Result<()> {
     let apps = config.load_apps()?;
     let target = config
         .get_app_config(&apps, app_name)
@@ -425,14 +430,35 @@ fn execute_deploy(config: &ProxyConfig, app_name: &str, image: &str) -> Result<(
         &candidate_container,
     ];
     run_docker_compose(&args)?;
-    if !wait_for_healthy(&candidate_container)? {
+    let is_healthy = if should_wait_for_health_check(force) {
+        wait_for_healthy(&candidate_container)?
+    } else {
+        log::warn!(
+            "已指定 --force，跳过候选容器 '{}' 的健康检查等待；仅确认容器仍在运行后切换",
+            candidate_container
+        );
+        false
+    };
+    let is_running = container::is_container_running(&candidate_container)?;
+    if !should_switch_candidate(is_healthy, is_running, force) {
         container::remove_container(&candidate_container)?;
         let (active_apps, active_images) = active_runtime_apps(&apps, deployments.states())?;
         write_runtime_configs(config, &active_apps, &active_images)?;
-        return Err(Error::Container(format!(
-            "候选容器 '{}' 未通过健康检查",
+        let reason = if is_running {
+            format!(
+                "候选容器 '{}' 未通过健康检查；如已确认可继续发布，可使用 --force",
+                candidate_container
+            )
+        } else {
+            format!("候选容器 '{}' 未处于运行状态", candidate_container)
+        };
+        return Err(Error::Container(reason));
+    }
+    if !is_healthy {
+        log::warn!(
+            "候选容器 '{}' 未通过或已跳过健康检查，但因 --force 仍将继续切换；请尽快验证服务",
             candidate_container
-        )));
+        );
     }
     let nginx_result = if container::is_container_running("proxy-nginx")? {
         container::reload_nginx()
@@ -462,7 +488,7 @@ fn execute_rollback(config: &ProxyConfig, app_name: &str) -> Result<()> {
         .state(app_name)
         .and_then(|state| state.previous_image.clone())
         .ok_or_else(|| Error::State(format!("应用 '{}' 没有可回滚镜像", app_name)))?;
-    execute_deploy(config, app_name, &image)
+    execute_deploy(config, app_name, &image, false)
 }
 
 fn load_deployments_with_legacy_migration(
@@ -525,13 +551,58 @@ fn write_runtime_configs(
 }
 
 fn wait_for_healthy(container_name: &str) -> Result<bool> {
-    for _ in 0..30 {
+    let wait_seconds = health_check_wait_seconds(
+        compose::HTTP_HEALTHCHECK_INTERVAL_SECS,
+        compose::HTTP_HEALTHCHECK_RETRIES,
+        compose::HTTP_HEALTHCHECK_TIMEOUT_SECS,
+    );
+    let attempts = wait_seconds.div_ceil(HEALTHCHECK_POLL_INTERVAL_SECS);
+    log::info!(
+        "等待候选容器 '{}' 通过健康检查，最长 {} 秒",
+        container_name,
+        wait_seconds
+    );
+
+    for attempt in 1..=attempts {
         if container::is_container_healthy(container_name)? {
+            log::info!("候选容器 '{}' 已通过健康检查", container_name);
             return Ok(true);
         }
-        std::thread::sleep(std::time::Duration::from_secs(2));
+        if attempt % 5 == 0 || attempt == attempts {
+            log::info!(
+                "候选容器 '{}' 尚未健康（第 {}/{} 次检查）",
+                container_name,
+                attempt,
+                attempts
+            );
+        }
+        if attempt < attempts {
+            std::thread::sleep(std::time::Duration::from_secs(HEALTHCHECK_POLL_INTERVAL_SECS));
+        }
     }
     Ok(false)
+}
+
+fn health_check_wait_seconds(interval_seconds: u64, retries: u64, timeout_seconds: u64) -> u64 {
+    interval_seconds
+        .saturating_mul(retries)
+        .saturating_add(timeout_seconds)
+}
+
+/// 决定候选容器是否可以切换流量。
+///
+/// 健康检查通过时正常切换；只有候选容器仍在运行且操作者显式指定
+/// `--force` 时，才允许绕过失败的健康检查。已退出的容器绝不切换。
+fn should_switch_candidate(is_healthy: bool, is_running: bool, force: bool) -> bool {
+    is_running && (is_healthy || force)
+}
+
+/// 是否在切换前等待 HTTP 健康检查。
+///
+/// `--force` 是由操作者承担风险的显式选择，因此只检查进程仍在运行，
+/// 不等待默认健康检查窗口超时。
+fn should_wait_for_health_check(force: bool) -> bool {
+    !force
 }
 
 /// 在目标容器启动前设置卷权限。
@@ -798,6 +869,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_should_switch_candidate_requires_health_or_explicit_force_for_running_container() {
+        assert!(should_switch_candidate(true, true, false));
+        assert!(!should_switch_candidate(false, true, false));
+        assert!(should_switch_candidate(false, true, true));
+        assert!(!should_switch_candidate(true, false, true));
+        assert!(!should_switch_candidate(false, false, true));
+    }
+
+    #[test]
+    fn test_should_wait_for_health_check_unless_deploy_is_forced() {
+        assert!(should_wait_for_health_check(false));
+        assert!(!should_wait_for_health_check(true));
+    }
+
+    #[test]
+    fn test_health_check_wait_seconds_covers_all_retries_and_timeout() {
+        assert_eq!(health_check_wait_seconds(30, 3, 10), 100);
+    }
+
+    #[test]
     fn test_cli_parse() {
         let args = vec![
             "micro_proxy".to_string(),
@@ -836,6 +927,16 @@ mod tests {
             "--image",
             "api:sha-0123456789ab",
         ]);
-        assert!(matches!(deploy.command, Commands::Deploy { app, image } if app == "api" && image == "api:sha-0123456789ab"));
+        assert!(matches!(deploy.command, Commands::Deploy { app, image, force } if app == "api" && image == "api:sha-0123456789ab" && !force));
+
+        let forced_deploy = Cli::parse_from([
+            "micro_proxy",
+            "deploy",
+            "api",
+            "--image",
+            "api:sha-0123456789ab",
+            "--force",
+        ]);
+        assert!(matches!(forced_deploy.command, Commands::Deploy { force: true, .. }));
     }
 }

@@ -135,10 +135,11 @@ Builds and records candidate images without changing containers, Nginx, or traff
 
 ```bash
 micro_proxy deploy <APP> --image <IMAGE>
+micro_proxy deploy <APP> --image <IMAGE> --force
 micro_proxy rollback <APP>
 ```
 
-Deployment starts and health-checks a candidate, reloads Nginx after it is ready, then stops the old container. The old version remains in service if the candidate fails.
+Deployment starts and health-checks a candidate, reloads Nginx after it is ready, then stops the old container. The old version remains in service if the candidate fails. If a service does not yet expose a usable health endpoint, first verify its logs and real requests, then explicitly add `--force` for that deployment. It skips health-check waiting for that deployment and switches traffic only while the candidate container is still running; an exited candidate is never switched into traffic. The default is safe and is not stored in deployment state.
 
 ### stop - Stop Micro-Applications
 
@@ -234,6 +235,11 @@ container_name: "my-container"
 # Container internal port (required)
 container_port: 80
 
+# HTTP health check path (optional, defaults to "/")
+# The check URL is http://127.0.0.1:<container_port><healthcheck_path>
+# APIs can use a dedicated endpoint such as "/healthz"
+healthcheck_path: "/healthz"
+
 # Application type (required): static, api, internal
 app_type: "static"
 
@@ -251,6 +257,8 @@ proxy_send_timeout: 60
 ```
 
 **Detailed configuration instructions** are available in **[Micro-Application Development Guide](docs/micro-app-development.md)**.
+
+`healthcheck_path` is used by deployment health checks for `static` and `api` applications. It must start with `/` and defaults to `/`, so existing `micro-app.yml` files remain compatible. The check runs inside the container against the IPv4 loopback address `127.0.0.1`; the image must provide `wget`, and the configured path should return a 2xx or 3xx response.
 
 ### Data Persistence Configuration File (micro-app.volumes.yml)
 

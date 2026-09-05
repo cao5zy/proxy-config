@@ -135,10 +135,11 @@ micro_proxy build [APP...] [--no-cache]
 
 ```bash
 micro_proxy deploy <APP> --image <IMAGE>
+micro_proxy deploy <APP> --image <IMAGE> --force
 micro_proxy rollback <APP>
 ```
 
-部署会先启动候选容器并等待健康检查，通过后平滑重载 Nginx，最后停止旧容器；失败时旧版本保持运行。
+部署会先启动候选容器并等待健康检查，通过后平滑重载 Nginx，最后停止旧容器；失败时旧版本保持运行。若服务尚未提供可用的健康检查接口，完成容器日志和实际访问验证后，可在该次部署显式加 `--force`。它会跳过本次健康检查等待，只会在候选容器仍处于运行状态时切换；容器已经退出时仍拒绝切换。默认不启用，且不会被保存到部署状态。
 
 ### stop - 停止微应用
 
@@ -234,6 +235,11 @@ container_name: "my-container"
 # 容器内部端口（必需）
 container_port: 80
 
+# HTTP 健康检查路径（可选，默认 "/"）
+# 检查地址为 http://127.0.0.1:<container_port><healthcheck_path>
+# API 可配置为实际的健康接口，例如 "/healthz"
+healthcheck_path: "/healthz"
+
 # 应用类型（必需）：static, api, internal
 app_type: "static"
 
@@ -251,6 +257,8 @@ proxy_send_timeout: 60
 ```
 
 **详细配置说明**请参阅 **[微应用开发专题](docs/micro-app-development.md)**。
+
+`healthcheck_path` 仅用于 `static` 和 `api` 应用的部署健康检查。路径必须以 `/` 开头；未配置时使用 `/`，因此既有 `micro-app.yml` 无需修改。健康检查在容器内部请求 IPv4 回环地址 `127.0.0.1`，镜像需要提供 `wget`，且该路径应返回 2xx 或 3xx 响应。
 
 ### 数据持久化配置文件 (micro-app.volumes.yml)
 

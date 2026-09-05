@@ -134,6 +134,7 @@ impl MicroApp {
             routes: self.config.routes.clone(),
             container_name: self.config.container_name.clone(),
             container_port: self.config.container_port,
+            healthcheck_path: self.config.healthcheck_path.clone(),
             app_type,
             description: self.config.description.clone(),
             nginx_extra_config: self.config.nginx_extra_config.clone(),
@@ -542,6 +543,7 @@ app_type: "static"
 routes: ["/"]
 container_name: "container1"
 container_port: 80
+healthcheck_path: "/ready"
 app_type: "static"
 "#;
         std::fs::write(app1_path.join("micro-app.yml"), micro_app_yml1).unwrap();
@@ -689,6 +691,7 @@ app_type: "api"
 routes: ["/"]
 container_name: "container1"
 container_port: 80
+healthcheck_path: "/ready"
 app_type: "static"
 description: "Test app"
 "#;
@@ -714,6 +717,7 @@ run_as_user: "999:999"
         assert_eq!(app_configs[0].name, "app1");
         assert_eq!(app_configs[0].container_name, "container1");
         assert_eq!(app_configs[0].container_port, 80);
+        assert_eq!(app_configs[0].healthcheck_path, "/ready");
         assert_eq!(app_configs[0].routes, vec!["/"]);
         assert_eq!(app_configs[0].description, Some("Test app".to_string()));
         assert_eq!(app_configs[0].docker_volumes, vec!["./data:/app/data"]);

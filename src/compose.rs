@@ -7,6 +7,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
+pub const HTTP_HEALTHCHECK_INTERVAL_SECS: u64 = 30;
+pub const HTTP_HEALTHCHECK_TIMEOUT_SECS: u64 = 10;
+pub const HTTP_HEALTHCHECK_RETRIES: u64 = 3;
+
 /// Docker Compose配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComposeConfig {
@@ -386,63 +390,15 @@ fn generate_app_service(
 
     // 根据应用类型添加额外配置
     match app.app_type {
-        AppType::Static => {
-            // 静态网站需要健康检查
-            let healthcheck = format!(
-                r#"CMD-SHELL, wget --quiet --tries=1 --spider http://localhost:{} || exit 1"#,
-                app.container_port
-            );
-            let mut healthcheck_map = serde_yaml::Mapping::new();
-            healthcheck_map.insert(
-                serde_yaml::Value::String("test".to_string()),
-                serde_yaml::Value::String(healthcheck),
-            );
-            healthcheck_map.insert(
-                serde_yaml::Value::String("interval".to_string()),
-                serde_yaml::Value::String("30s".to_string()),
-            );
-            healthcheck_map.insert(
-                serde_yaml::Value::String("timeout".to_string()),
-                serde_yaml::Value::String("10s".to_string()),
-            );
-            healthcheck_map.insert(
-                serde_yaml::Value::String("retries".to_string()),
-                serde_yaml::Value::Number(3.into()),
-            );
+        AppType::Static | AppType::Api => {
             service.insert(
                 serde_yaml::Value::String("healthcheck".to_string()),
-                serde_yaml::Value::Mapping(healthcheck_map),
+                serde_yaml::Value::Mapping(http_healthcheck(
+                    app.container_port,
+                    &app.healthcheck_path,
+                )),
             );
-            log::debug!("为 Static 应用 '{}' 添加健康检查", app.name);
-        }
-        AppType::Api => {
-            // API服务需要健康检查
-            let healthcheck = format!(
-                r#"CMD-SHELL, wget --quiet --tries=1 --spider http://localhost:{} || exit 1"#,
-                app.container_port
-            );
-            let mut healthcheck_map = serde_yaml::Mapping::new();
-            healthcheck_map.insert(
-                serde_yaml::Value::String("test".to_string()),
-                serde_yaml::Value::String(healthcheck),
-            );
-            healthcheck_map.insert(
-                serde_yaml::Value::String("interval".to_string()),
-                serde_yaml::Value::String("30s".to_string()),
-            );
-            healthcheck_map.insert(
-                serde_yaml::Value::String("timeout".to_string()),
-                serde_yaml::Value::String("10s".to_string()),
-            );
-            healthcheck_map.insert(
-                serde_yaml::Value::String("retries".to_string()),
-                serde_yaml::Value::Number(3.into()),
-            );
-            service.insert(
-                serde_yaml::Value::String("healthcheck".to_string()),
-                serde_yaml::Value::Mapping(healthcheck_map),
-            );
-            log::debug!("为 Api 应用 '{}' 添加健康检查", app.name);
+            log::debug!("为 {:?} 应用 '{}' 添加健康检查", app.app_type, app.name);
         }
         AppType::Internal => {
             // Internal 类型不添加健康检查（可能不是 HTTP 服务）
@@ -451,6 +407,33 @@ fn generate_app_service(
     }
 
     service
+}
+
+fn http_healthcheck(container_port: u16, healthcheck_path: &str) -> serde_yaml::Mapping {
+    let mut healthcheck = serde_yaml::Mapping::new();
+    healthcheck.insert(
+        serde_yaml::Value::String("test".to_string()),
+        serde_yaml::Value::Sequence(vec![
+            serde_yaml::Value::String("CMD-SHELL".to_string()),
+            serde_yaml::Value::String(format!(
+                "wget --quiet --tries=1 --spider http://127.0.0.1:{}{} || exit 1",
+                container_port, healthcheck_path
+            )),
+        ]),
+    );
+    healthcheck.insert(
+        serde_yaml::Value::String("interval".to_string()),
+        serde_yaml::Value::String(format!("{}s", HTTP_HEALTHCHECK_INTERVAL_SECS)),
+    );
+    healthcheck.insert(
+        serde_yaml::Value::String("timeout".to_string()),
+        serde_yaml::Value::String(format!("{}s", HTTP_HEALTHCHECK_TIMEOUT_SECS)),
+    );
+    healthcheck.insert(
+        serde_yaml::Value::String("retries".to_string()),
+        serde_yaml::Value::Number(HTTP_HEALTHCHECK_RETRIES.into()),
+    );
+    healthcheck
 }
 
 /// 保存docker-compose配置到文件
@@ -482,12 +465,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_http_healthcheck_uses_cmd_shell_sequence() {
+        let healthcheck = http_healthcheck(8080, "/healthz");
+        let test = healthcheck
+            .get(serde_yaml::Value::String("test".to_string()))
+            .unwrap();
+
+        assert_eq!(
+            test,
+            &serde_yaml::Value::Sequence(vec![
+                serde_yaml::Value::String("CMD-SHELL".to_string()),
+                serde_yaml::Value::String(
+                    "wget --quiet --tries=1 --spider http://127.0.0.1:8080/healthz || exit 1"
+                        .to_string(),
+                ),
+            ])
+        );
+    }
+
+    #[test]
     fn test_generate_compose_config_uses_explicit_image_reference() {
         let apps = vec![AppConfig {
             name: "api".to_string(),
             routes: vec!["/api".to_string()],
             container_name: "api".to_string(),
             container_port: 3000,
+            healthcheck_path: "/".to_string(),
             app_type: AppType::Api,
             description: None,
             nginx_extra_config: None,
@@ -523,6 +526,7 @@ mod tests {
                 routes: vec!["/".to_string()],
                 container_name: "main-container".to_string(),
                 container_port: 80,
+            healthcheck_path: "/".to_string(),
                 app_type: AppType::Static,
                 description: None,
                 nginx_extra_config: None,
@@ -541,6 +545,7 @@ mod tests {
                 routes: vec!["/api".to_string()],
                 container_name: "api-container".to_string(),
                 container_port: 3000,
+            healthcheck_path: "/".to_string(),
                 app_type: AppType::Api,
                 description: None,
                 nginx_extra_config: None,
@@ -611,6 +616,7 @@ mod tests {
             routes: vec!["/".to_string()],
             container_name: "main-container".to_string(),
             container_port: 80,
+            healthcheck_path: "/".to_string(),
             app_type: AppType::Static,
             description: None,
             nginx_extra_config: None,
@@ -661,6 +667,7 @@ mod tests {
                 routes: vec!["/".to_string()],
                 container_name: "main-container".to_string(),
                 container_port: 80,
+            healthcheck_path: "/".to_string(),
                 app_type: AppType::Static,
                 description: None,
                 nginx_extra_config: None,
@@ -679,6 +686,7 @@ mod tests {
                 routes: vec![],
                 container_name: "redis-container".to_string(),
                 container_port: 6379,
+            healthcheck_path: "/".to_string(),
                 app_type: AppType::Internal,
                 description: None,
                 nginx_extra_config: None,
@@ -697,6 +705,7 @@ mod tests {
                 routes: vec!["/api".to_string()],
                 container_name: "api-container".to_string(),
                 container_port: 3000,
+            healthcheck_path: "/".to_string(),
                 app_type: AppType::Api,
                 description: None,
                 nginx_extra_config: None,
@@ -749,10 +758,10 @@ mod tests {
         // 检查健康检查：redis 不应该有健康检查
         assert!(config.contains("healthcheck:"));
         // main-container 和 api-container 应该有健康检查
-        assert!(config.contains("wget --quiet --tries=1 --spider http://localhost:80"));
-        assert!(config.contains("wget --quiet --tries=1 --spider http://localhost:3000"));
+        assert!(config.contains("wget --quiet --tries=1 --spider http://127.0.0.1:80"));
+        assert!(config.contains("wget --quiet --tries=1 --spider http://127.0.0.1:3000"));
         // redis 不应该有 wget 健康检查
-        assert!(!config.contains("wget --quiet --tries=1 --spider http://localhost:6379"));
+        assert!(!config.contains("wget --quiet --tries=1 --spider http://127.0.0.1:6379"));
 
         // 检查环境变量文件
         assert!(config.contains("env_file:"));
@@ -773,6 +782,7 @@ mod tests {
             routes: vec![],
             container_name: "redis-container".to_string(),
             container_port: 6379,
+            healthcheck_path: "/".to_string(),
             app_type: AppType::Internal,
             description: None,
             nginx_extra_config: None,
@@ -840,6 +850,7 @@ mod tests {
                 routes: vec!["/".to_string()],
                 container_name: "main-container".to_string(),
                 container_port: 80,
+            healthcheck_path: "/".to_string(),
                 app_type: AppType::Static,
                 description: None,
                 nginx_extra_config: None,
@@ -861,6 +872,7 @@ mod tests {
                 routes: vec![],
                 container_name: "redis-container".to_string(),
                 container_port: 6379,
+            healthcheck_path: "/".to_string(),
                 app_type: AppType::Internal,
                 description: None,
                 nginx_extra_config: None,
@@ -927,6 +939,7 @@ mod tests {
             routes: vec!["/".to_string()],
             container_name: "main-container".to_string(),
             container_port: 80,
+            healthcheck_path: "/".to_string(),
             app_type: AppType::Static,
             description: None,
             nginx_extra_config: None,
@@ -975,6 +988,7 @@ mod tests {
                 routes: vec!["/".to_string()],
                 container_name: "main-container".to_string(),
                 container_port: 80,
+            healthcheck_path: "/".to_string(),
                 app_type: AppType::Static,
                 description: None,
                 nginx_extra_config: None,
@@ -990,6 +1004,7 @@ mod tests {
                 routes: vec![],
                 container_name: "redis-container".to_string(),
                 container_port: 6379,
+            healthcheck_path: "/".to_string(),
                 app_type: AppType::Internal,
                 description: None,
                 nginx_extra_config: None,

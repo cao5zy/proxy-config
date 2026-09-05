@@ -7,6 +7,11 @@ use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// 未显式配置时使用的 HTTP 健康检查路径。
+pub fn default_healthcheck_path() -> String {
+    "/".to_string()
+}
+
 /// 微应用配置文件结构（micro-app.yml）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MicroAppConfig {
@@ -19,6 +24,10 @@ pub struct MicroAppConfig {
 
     /// 容器内部端口（必需）
     pub container_port: u16,
+
+    /// HTTP 健康检查路径（可选，默认 `/`）
+    #[serde(default = "default_healthcheck_path")]
+    pub healthcheck_path: String,
 
     /// 应用类型（必需）
     pub app_type: String, // 使用String，后续转换为AppType
@@ -59,6 +68,20 @@ pub fn validate_route_format(route: &str) -> Result<()> {
         return Err(Error::Config(format!(
             "路由 '{}' 不能以 '/' 结尾（根路由 '/' 除外）",
             route
+        )));
+    }
+    Ok(())
+}
+
+/// 验证健康检查路径格式是否合法。
+pub fn validate_healthcheck_path(path: &str) -> Result<()> {
+    if path.is_empty() {
+        return Err(Error::Config("healthcheck_path 不能为空".to_string()));
+    }
+    if !path.starts_with('/') {
+        return Err(Error::Config(format!(
+            "healthcheck_path '{}' 必须以 '/' 开头",
+            path
         )));
     }
     Ok(())
@@ -105,6 +128,8 @@ impl MicroAppConfig {
                 app_name
             )));
         }
+
+        validate_healthcheck_path(&self.healthcheck_path)?;
 
         // 验证 app_type
         let valid_types = ["static", "api", "internal"];
@@ -173,8 +198,27 @@ nginx_extra_config: |
         assert_eq!(config.container_name, "test-container");
         assert_eq!(config.container_port, 8080);
         assert_eq!(config.app_type, "api");
+        assert_eq!(config.healthcheck_path, "/");
         assert_eq!(config.description, Some("Test API service".to_string()));
         assert!(config.nginx_extra_config.is_some());
+    }
+
+    #[test]
+    fn test_micro_app_config_from_file_reads_configured_healthcheck_path() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("micro-app.yml");
+        let yaml_content = r#"
+routes: ["/api"]
+container_name: "test-api"
+container_port: 3000
+healthcheck_path: "/healthz"
+app_type: "api"
+"#;
+
+        std::fs::write(&config_path, yaml_content).unwrap();
+
+        let config = MicroAppConfig::from_file(&config_path).unwrap();
+        assert_eq!(config.healthcheck_path, "/healthz");
     }
 
     #[test]
@@ -183,6 +227,7 @@ nginx_extra_config: |
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
             container_port: 80,
+            healthcheck_path: "/".to_string(),
             app_type: "static".to_string(),
             description: None,
             nginx_extra_config: None,
@@ -199,11 +244,32 @@ nginx_extra_config: |
     }
 
     #[test]
+    fn test_micro_app_config_validate_rejects_healthcheck_path_without_leading_slash() {
+        let config = MicroAppConfig {
+            routes: vec!["/".to_string()],
+            container_name: "test-container".to_string(),
+            container_port: 80,
+            app_type: "static".to_string(),
+            healthcheck_path: "healthz".to_string(),
+            description: None,
+            nginx_extra_config: None,
+            proxy_connect_timeout: None,
+            proxy_read_timeout: None,
+            proxy_send_timeout: None,
+        };
+
+        let result = config.validate("test-app");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("healthcheck_path"));
+    }
+
+    #[test]
     fn test_micro_app_config_validate_empty_container_name() {
         let config = MicroAppConfig {
             routes: vec!["/".to_string()],
             container_name: "".to_string(),
             container_port: 80,
+            healthcheck_path: "/".to_string(),
             app_type: "static".to_string(),
             description: None,
             nginx_extra_config: None,
@@ -226,6 +292,7 @@ nginx_extra_config: |
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
             container_port: 0,
+            healthcheck_path: "/".to_string(),
             app_type: "static".to_string(),
             description: None,
             nginx_extra_config: None,
@@ -248,6 +315,7 @@ nginx_extra_config: |
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
             container_port: 80,
+            healthcheck_path: "/".to_string(),
             app_type: "invalid".to_string(),
             description: None,
             nginx_extra_config: None,
@@ -270,6 +338,7 @@ nginx_extra_config: |
             routes: vec![],
             container_name: "test-container".to_string(),
             container_port: 80,
+            healthcheck_path: "/".to_string(),
             app_type: "static".to_string(),
             description: None,
             nginx_extra_config: None,
@@ -292,6 +361,7 @@ nginx_extra_config: |
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
             container_port: 6379,
+            healthcheck_path: "/".to_string(),
             app_type: "internal".to_string(),
             description: None,
             nginx_extra_config: None,
@@ -351,6 +421,7 @@ nginx_extra_config: |
             routes: vec!["/gg123_test/".to_string()],
             container_name: "test-container".to_string(),
             container_port: 80,
+            healthcheck_path: "/".to_string(),
             app_type: "static".to_string(),
             description: None,
             nginx_extra_config: None,

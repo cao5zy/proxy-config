@@ -14,6 +14,11 @@ container_name: "my-container"
 # 微应用监听的端口
 container_port: 80
 
+# HTTP 健康检查路径（可选，默认 "/"）
+# 部署时 micro_proxy 会请求 http://127.0.0.1:<container_port><healthcheck_path>
+# 后端服务常见示例："/healthz" 或 "/ready"
+healthcheck_path: "/"
+
 # 应用类型（必需）
 # 可选值: static, api, internal
 # - static: 静态网站
