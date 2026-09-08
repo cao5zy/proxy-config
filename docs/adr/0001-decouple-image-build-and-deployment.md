@@ -11,13 +11,13 @@
 
 ## 决策
 
-1. 构建与部署分为独立操作。`micro_proxy build [APP...]` 只产生镜像并登记候选版本；绝不改变正在运行的容器、Nginx 配置、流量或宿主机卷数据。特别是，构建不得执行卷权限初始化脚本（包括 `chown`）。
+1. 构建与部署分为独立操作。`micro_proxy build [APP_NAME...]` 只产生镜像；绝不改变正在运行的容器、Nginx 配置、流量、部署状态或宿主机卷数据。特别是，构建不得执行卷权限初始化脚本（包括 `chown`）。
 2. 每次构建使用不可变镜像引用，格式为 `<app>:sha-<短哈希>`。标签对应唯一构建输入，`latest` 不再作为部署依据。
 3. 保留 `micro_proxy start`，但其职责变为按部署状态启动已选择的活动镜像；它不再依据源码变化构建镜像。
-4. 使用 `micro_proxy deploy <APP> --image <IMAGE>` 明确选择待运行的已构建镜像；部署状态记录 `active_image` 与 `previous_image`。
-5. 使用 `micro_proxy rollback <APP>` 将活动版本切回 `previous_image`，不依赖源码、不触发构建。
-6. 容器名称继续来自 `micro-app.yml`，不是 `start` 或 `deploy` 的位置参数。容器名描述运行实例；镜像引用描述构建产物，二者不能混用。
-7. 兼容既有配置。首次升级发现旧的 `<app>:latest` 时，或 `build` 已仅写入候选镜像但尚无活动部署时，将该镜像及既有容器登记为活动版本；用户无需修改 `proxy-config.yml`、`micro-app.yml` 或 `micro-app.volumes.yml`。
+4. 使用 `micro_proxy deploy <APP_NAME> --image <IMAGE_REF>` 明确选择待运行的已构建镜像；部署状态记录 `active_image`、`previous_image` 与 `history_images`。目标镜像切换成功后，原活动镜像成为 `previous_image`，原可回滚镜像进入按部署时间由新到旧排序的 `history_images`；目标若原本存在于历史中则从历史移除。
+5. 使用 `micro_proxy rollback <APP_NAME>` 将活动版本切回 `previous_image`，不依赖源码、不触发构建。
+6. `APP_NAME` 是 `build`、`deploy`、`rollback` 唯一接受的应用标识，等于 `app.name`。容器名称继续来自 `micro-app.yml`，只描述 Docker 运行实例，供配置与 Docker 排障命令使用；镜像引用描述构建产物，只通过 `--image <IMAGE_REF>` 传递。镜像仓库与部署状态均以应用名命名。明确区分三者，避免容器名、应用名和镜像引用在命令中混用。
+7. 兼容既有配置。首次升级发现旧的 `<app>:latest` 时，将该镜像及既有容器登记为活动版本；用户无需修改 `proxy-config.yml`、`micro-app.yml` 或 `micro-app.volumes.yml`。旧版的候选状态无法可靠判断是否曾上线，不自动迁移为发布历史。
 8. 卷权限初始化属于部署前置步骤：`deploy` 仅针对目标应用、在启动候选容器前执行其 `micro-app.volumes.yml` 中声明的权限脚本。该配置可能修改宿主机卷目录，使用者应仅在确有需要时配置，且对已有数据目录显式评估 `recursive` 的影响。
 9. 对 `static` 与 `api` 应用，部署前默认以容器内 `/` 作为 HTTP 健康检查路径；可通过 `micro-app.yml` 的 `healthcheck_path` 指向实际健康接口。若健康检查失败，默认删除候选容器并保留旧版本。操作者显式传入 `micro_proxy deploy ... --force` 时，跳过本次 HTTP 健康检查等待；只有候选容器仍处于运行状态才允许切流。`--force` 是单次命令选项，不写入部署状态，也不能让已退出的容器上线。
 

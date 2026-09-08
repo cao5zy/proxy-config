@@ -6,15 +6,16 @@
 
 ### 第一期：不可变镜像与显式部署
 
-- [x] 新增 `micro_proxy build [APP...]`：扫描指定应用（未指定时扫描全部），只构建镜像，不停止、删除或重启任何容器。
+- [x] 新增 `micro_proxy build [APP_NAME...]`：扫描指定应用（未指定时扫描全部），只构建镜像，不停止、删除或重启任何容器，也不写入部署状态。
 - [x] 将镜像命名从固定的 `<app>:latest` 改为不可变标签，例如 `<app>:sha-<构建上下文哈希短码>`；哈希输入应包含 Dockerfile、构建上下文和会影响构建结果的构建参数。
-- [x] 新增部署状态文件，至少记录每个应用的 `active_image`、`previous_image` 和最近构建的候选镜像。
+- [x] 新增部署状态文件，记录每个应用的 `active_image`、`previous_image` 和按部署时间保留的 `history_images`。
 - [x] 保留 `micro_proxy start`，但使其只按部署状态启动已选镜像；不得扫描源码变化或隐式构建镜像。
-- [x] 新增 `micro_proxy deploy <APP> --image <IMAGE>`，将一个已存在的镜像设为活动版本，并更新生成的 Compose 配置。
-- [x] 新增 `micro_proxy rollback <APP>`，恢复到 `previous_image`，且不重新从源码构建。
-- [x] 提供旧安装迁移：若尚无活动部署（包括 `build` 仅写入候选镜像的情况）而 `<app>:latest` 存在，将其登记为 `active_image`；现有 `proxy-config.yml`、`micro-app.yml` 和 `micro-app.volumes.yml` 不作修改。
-- [x] 调整 `status` 与 `clean`：显示活动/候选/历史镜像；清理时不得误删活动镜像或可回滚镜像。
+- [x] 新增 `micro_proxy deploy <APP_NAME> --image <IMAGE_REF>`，将一个已存在的镜像设为活动版本，并更新生成的 Compose 配置。
+- [x] 新增 `micro_proxy rollback <APP_NAME>`，恢复到 `previous_image`，且不重新从源码构建。
+- [x] 提供旧安装迁移：若尚无活动部署而 `<app>:latest` 存在，将其登记为 `active_image`；现有 `proxy-config.yml`、`micro-app.yml` 和 `micro-app.volumes.yml` 不作修改。
+- [x] 调整 `status` 与 `clean`：显示活动、可回滚及全部历史镜像；清理时只删除历史镜像，不得误删活动镜像或可回滚镜像。
 - [x] 为镜像引用、部署状态迁移、Compose 镜像选择等纯函数补充 TDD 单元测试；运行 `cargo test`。
+- [x] `build`、`deploy`、`rollback` 仅接受应用名（`APP_NAME`）；保持镜像仓库和部署状态以应用名命名，并在构建输出中展示应用名、容器名和镜像引用的映射。
 
 ### 第二期：健康检查与蓝绿切换
 

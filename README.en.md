@@ -91,7 +91,7 @@ cp micro-app.yml.example ./micro-apps/my-app/micro-app.yml
 # Build images only; running services are unaffected
 micro_proxy build
 
-# Deploy a candidate image printed by build
+# APP_NAME is the application name; copy the image reference from build output
 micro_proxy deploy my-app --image my-app:sha-0123456789ab
 
 # Roll back without rebuilding source
@@ -123,20 +123,26 @@ micro_proxy start
 
 Starts the selected active images from deployment state; it does not scan source or build images.
 
-### build - Build candidate images
+### build - Build images
 
 ```bash
-micro_proxy build [APP...] [--no-cache]
+micro_proxy build [APP_NAME...] [--no-cache]
 ```
 
-Builds and records candidate images without changing containers, Nginx, or traffic. Images use immutable `app:sha-<hash>` tags.
+Builds images without changing containers, Nginx, traffic, or deployment state. Images use immutable `app:sha-<hash>` tags. `APP_NAME` is only the application name (`app.name`, normally derived from the application directory); it is not a `container_name` or an image reference.
+
+```bash
+micro_proxy build api
+```
+
+For example, when the app name is `api` and its container name is `test_gg123_api`, use `api` for build, deploy, and rollback. Use `test_gg123_api` only with Docker commands such as `docker logs` and `docker inspect`. Command output shows all three identifiers to make their roles clear.
 
 ### deploy / rollback - Switch or roll back a version
 
 ```bash
-micro_proxy deploy <APP> --image <IMAGE>
-micro_proxy deploy <APP> --image <IMAGE> --force
-micro_proxy rollback <APP>
+micro_proxy deploy <APP_NAME> --image <IMAGE_REF>
+micro_proxy deploy <APP_NAME> --image <IMAGE_REF> --force
+micro_proxy rollback <APP_NAME>
 ```
 
 Deployment starts and health-checks a candidate, reloads Nginx after it is ready, then stops the old container. The old version remains in service if the candidate fails. If a service does not yet expose a usable health endpoint, first verify its logs and real requests, then explicitly add `--force` for that deployment. It skips health-check waiting for that deployment and switches traffic only while the candidate container is still running; an exited candidate is never switched into traffic. The default is safe and is not stored in deployment state.

@@ -393,9 +393,16 @@ impl ProxyConfig {
         Ok(())
     }
 
-    /// 获取指定名称的应用配置
-    pub fn get_app_config<'a>(&self, apps: &'a [AppConfig], name: &str) -> Option<&'a AppConfig> {
-        apps.iter().find(|app| app.name == name)
+    /// 按应用名称获取应用配置。
+    ///
+    /// `app.name` 是 micro_proxy 的唯一命令标识；`container_name` 仅用于 Docker
+    /// 运行实例，不参与命令参数解析。
+    pub fn get_app_config_by_name<'a>(
+        &self,
+        apps: &'a [AppConfig],
+        app_name: &str,
+    ) -> Option<&'a AppConfig> {
+        apps.iter().find(|app| app.name == app_name)
     }
 
     /// 获取所有需要 nginx 代理的应用
@@ -727,7 +734,7 @@ app_type: internal
     }
 
     #[test]
-    fn test_get_app_config() {
+    fn test_get_app_config_by_app_name_only() {
         let apps = vec![
             AppConfig {
                 name: "test-app".to_string(),
@@ -783,15 +790,18 @@ app_type: internal
             domain: None,
         };
 
-        let app = config.get_app_config(&apps, "test-app");
+        let app = config.get_app_config_by_name(&apps, "test-app");
         assert!(app.is_some());
         assert_eq!(app.unwrap().name, "test-app");
 
-        let app = config.get_app_config(&apps, "redis");
+        let app = config.get_app_config_by_name(&apps, "redis");
         assert!(app.is_some());
         assert_eq!(app.unwrap().name, "redis");
 
-        let app = config.get_app_config(&apps, "non-existent");
+        let app = config.get_app_config_by_name(&apps, "test-container");
+        assert!(app.is_none());
+
+        let app = config.get_app_config_by_name(&apps, "non-existent");
         assert!(app.is_none());
     }
 

@@ -47,16 +47,18 @@ struct Cli {
 enum Commands {
     /// 启动所有微应用
     Start,
-    /// 构建镜像并登记为候选版本，不影响运行中的站点
+    /// 构建镜像，不影响运行中的站点
     Build {
-        /// 指定要构建的应用；省略时构建全部应用
+        /// 指定要构建的应用名；省略时构建全部应用
+        #[arg(value_name = "APP_NAME")]
         apps: Vec<String>,
         /// 禁用 Docker 构建缓存
         #[arg(long)]
         no_cache: bool,
     },
-    /// 将已构建的候选镜像部署到指定应用
+    /// 将已构建的镜像部署到指定应用
     Deploy {
+        #[arg(value_name = "APP_NAME")]
         app: String,
         #[arg(long)]
         image: String,
@@ -65,7 +67,10 @@ enum Commands {
         force: bool,
     },
     /// 回滚指定应用到上一活动镜像
-    Rollback { app: String },
+    Rollback {
+        #[arg(value_name = "APP_NAME")]
+        app: String,
+    },
     /// 停止所有微应用
     Stop,
     /// 清理所有微应用
@@ -345,19 +350,31 @@ fn execute_start(config: &ProxyConfig) -> Result<()> {
     run_docker_compose(&args)
 }
 
-/// 构建镜像并登记候选版本；此操作不生成运行配置，也不操作容器。
+/// 构建镜像；此操作不生成运行配置、不写部署状态，也不操作容器。
 fn execute_build(config: &ProxyConfig, requested_apps: &[String], no_cache: bool) -> Result<()> {
     let micro_apps = discover_micro_apps(&config.scan_dirs)?;
     let discovered_names = get_micro_app_names(&micro_apps);
     let apps = to_app_configs(&micro_apps);
     config.validate(&apps, &discovered_names)?;
+    let requested_app_names = requested_apps
+        .iter()
+        .map(|identifier| {
+            config
+                .get_app_config_by_name(&apps, identifier)
+                .map(|app| app.name.clone())
+                .ok_or_else(|| {
+                    Error::Config(format!(
+                        "未找到应用名: '{}'; 请使用应用目录推导的 app.name，container_name 仅用于 Docker 容器操作",
+                        identifier
+                    ))
+                })
+        })
+        .collect::<Result<Vec<_>>>()?;
     config.save_apps(&apps)?;
-    let mut deployments = DeploymentStore::new(deployment_state_path(&config.state_file_path));
-    deployments.load()?;
     let mut state_manager = StateManager::new(&config.state_file_path);
     state_manager.load()?;
     for app in &apps {
-        if !requested_apps.is_empty() && !requested_apps.contains(&app.name) {
+        if !requested_app_names.is_empty() && !requested_app_names.contains(&app.name) {
             continue;
         }
         let micro_app = get_micro_app_info(app, &micro_apps)?;
@@ -376,49 +393,50 @@ fn execute_build(config: &ProxyConfig, requested_apps: &[String], no_cache: bool
             )?;
         }
         state_manager.update_state(&app.name, source_hash, true);
-        deployments.set_candidate(&app.name, image.clone());
-        println!("已构建候选镜像: {}", image);
-    }
-    if requested_apps
-        .iter()
-        .any(|name| !apps.iter().any(|app| &app.name == name))
-    {
-        return Err(Error::Config("指定的应用未被发现".to_string()));
+        println!(
+            "已构建镜像: {}（应用：{}，容器：{}）",
+            image, app.name, app.container_name
+        );
     }
     state_manager.save()?;
-    deployments.save()
+    Ok(())
 }
 
 fn execute_deploy(config: &ProxyConfig, app_name: &str, image: &str, force: bool) -> Result<()> {
     let apps = config.load_apps()?;
     let target = config
-        .get_app_config(&apps, app_name)
-        .ok_or_else(|| Error::Config(format!("未找到应用: {}", app_name)))?;
+        .get_app_config_by_name(&apps, app_name)
+        .ok_or_else(|| {
+            Error::Config(format!(
+                "未找到应用名: '{}'; 请使用应用目录推导的 app.name，container_name 仅用于 Docker 容器操作",
+                app_name
+            ))
+        })?;
+    let canonical_app_name = &target.name;
     if !builder::image_exists(image)? {
         return Err(Error::Build(format!("镜像不存在: {}", image)));
     }
     let app_path = target.path.as_ref().ok_or_else(|| {
-        Error::Config(format!("应用 '{}' 缺少路径配置，无法初始化卷权限", app_name))
+        Error::Config(format!("应用 '{}' 缺少路径配置，无法初始化卷权限", canonical_app_name))
     })?;
     let app_path = PathBuf::from(app_path);
     let volumes_config = VolumesConfig::from_file(app_path.join("micro-app.volumes.yml"))?;
-    volumes_config.validate(app_name)?;
-    setup_volume_permissions(app_name, &app_path, &volumes_config)?;
+    volumes_config.validate(canonical_app_name)?;
+    setup_volume_permissions(canonical_app_name, &app_path, &volumes_config)?;
     let mut deployments = load_deployments_with_legacy_migration(config, &apps)?;
-    deployments.set_candidate(app_name, image.to_string());
     let old_container = deployments
-        .state(app_name)
+        .state(canonical_app_name)
         .and_then(|state| state.active_container.clone());
     let candidate_container =
         crate::deployment::candidate_container_name(&target.container_name, image);
     if old_container.as_deref() == Some(candidate_container.as_str()) {
         return Err(Error::State(format!(
             "镜像 '{}' 已是应用 '{}' 的活动版本",
-            image, app_name
+            image, canonical_app_name
         )));
     }
     let (runtime_apps, images, _) =
-        runtime_apps_with_candidate(&apps, deployments.states(), app_name, image)?;
+        runtime_apps_with_candidate(&apps, deployments.states(), canonical_app_name, image)?;
     write_runtime_configs(config, &runtime_apps, &images)?;
     crate::network::create_network(&config.network_name)?;
     let args = vec![
@@ -472,23 +490,34 @@ fn execute_deploy(config: &ProxyConfig, app_name: &str, image: &str, force: bool
         write_runtime_configs(config, &active_apps, &active_images)?;
         return Err(error);
     }
-    deployments.activate(app_name, image.to_string(), candidate_container.clone())?;
+    deployments.activate(canonical_app_name, image.to_string(), candidate_container.clone())?;
     deployments.save()?;
     if let Some(old) = old_container {
         container::remove_container(&old)?;
     }
-    println!("应用 '{}' 已切换至镜像 {}", app_name, image);
+    println!(
+        "应用 '{}'（容器：{}）已切换至镜像 {}",
+        canonical_app_name, target.container_name, image
+    );
     Ok(())
 }
 
 fn execute_rollback(config: &ProxyConfig, app_name: &str) -> Result<()> {
     let apps = config.load_apps()?;
+    let target = config
+        .get_app_config_by_name(&apps, app_name)
+        .ok_or_else(|| {
+            Error::Config(format!(
+                "未找到应用名: '{}'; 请使用应用目录推导的 app.name，container_name 仅用于 Docker 容器操作",
+                app_name
+            ))
+        })?;
     let deployments = load_deployments_with_legacy_migration(config, &apps)?;
     let image = deployments
-        .state(app_name)
+        .state(&target.name)
         .and_then(|state| state.previous_image.clone())
-        .ok_or_else(|| Error::State(format!("应用 '{}' 没有可回滚镜像", app_name)))?;
-    execute_deploy(config, app_name, &image, false)
+        .ok_or_else(|| Error::State(format!("应用 '{}' 没有可回滚镜像", target.name)))?;
+    execute_deploy(config, &target.name, &image, false)
 }
 
 fn load_deployments_with_legacy_migration(
@@ -726,15 +755,20 @@ fn execute_clean(config: &ProxyConfig, force: bool, clean_network: bool) -> Resu
     // 加载动态配置以获取应用列表
     let apps = config.load_apps()?;
 
-    // 清理未部署的候选镜像；活动和可回滚镜像必须保留。
-    log::info!("清理未部署的候选镜像...");
+    // 清理历史镜像；活动和可回滚镜像必须保留。
+    log::info!("清理历史镜像...");
     let mut deployments = DeploymentStore::new(deployment_state_path(&config.state_file_path));
     deployments.load()?;
-    for state in deployments.states().values() {
-        if let Some(image) = &state.candidate_image {
-            builder::remove_image(image)?;
-        }
+    let history_images = deployments
+        .states()
+        .keys()
+        .flat_map(|app_name| deployments.history_images(app_name).iter().cloned())
+        .collect::<Vec<_>>();
+    for image in &history_images {
+        builder::remove_image(image)?;
     }
+    deployments.clear_history_images();
+    deployments.save()?;
 
     // 执行clean脚本
     let micro_apps = discover_micro_apps(&config.scan_dirs)?;
@@ -786,15 +820,26 @@ fn execute_status(config: &ProxyConfig) -> Result<()> {
     for app in &apps {
         println!("应用: {}", app.name);
         if let Some(state) = deployments.state(&app.name) {
-            for (label, image) in [
-                ("活动", &state.active_image),
-                ("可回滚", &state.previous_image),
-                ("候选", &state.candidate_image),
-            ] {
+            for (label, image) in [("活动", &state.active_image), ("可回滚", &state.previous_image)] {
                 if let Some(image) = image {
                     println!(
                         "  {}镜像: {} ({})",
                         label,
+                        image,
+                        if builder::image_exists(image)? {
+                            "存在"
+                        } else {
+                            "不存在"
+                        }
+                    );
+                }
+            }
+            let history_images = deployments.history_images(&app.name);
+            if !history_images.is_empty() {
+                println!("  历史镜像（按部署时间，由新到旧）：");
+                for image in history_images {
+                    println!(
+                        "    - {} ({})",
                         image,
                         if builder::image_exists(image)? {
                             "存在"

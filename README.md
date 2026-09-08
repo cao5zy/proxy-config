@@ -91,7 +91,7 @@ cp micro-app.yml.example ./micro-apps/my-app/micro-app.yml
 # 仅构建镜像，不影响正在运行的站点
 micro_proxy build
 
-# 部署 build 输出的候选镜像（从 build 的输出复制镜像引用）
+# APP_NAME 使用应用名；镜像引用从 build 的输出复制
 micro_proxy deploy my-app --image my-app:sha-0123456789ab
 
 # 回滚到上一部署版本，不重新构建源码
@@ -123,20 +123,26 @@ micro_proxy start
 
 按部署状态启动已选择的活动镜像；不会扫描源码或隐式构建镜像。
 
-### build - 构建候选镜像
+### build - 构建镜像
 
 ```bash
-micro_proxy build [APP...] [--no-cache]
+micro_proxy build [APP_NAME...] [--no-cache]
 ```
 
-只构建镜像并登记候选版本，不改变容器、Nginx 或流量。镜像使用不可变的 `app:sha-<哈希>` 标签。
+只构建镜像，不改变容器、Nginx、流量或部署状态。镜像使用不可变的 `app:sha-<哈希>` 标签。`APP_NAME` 仅填写应用名（`app.name`，通常由应用目录推导），不接受 `container_name` 或镜像引用。
+
+```bash
+micro_proxy build api
+```
+
+例如，应用名为 `api`、容器名为 `test_gg123_api` 时，构建、部署与回滚均使用 `api`；`test_gg123_api` 仅用于 `docker logs`、`docker inspect` 等 Docker 操作。命令输出会同时显示应用名、容器名和镜像引用，便于区分三者。
 
 ### deploy / rollback - 切换或回滚版本
 
 ```bash
-micro_proxy deploy <APP> --image <IMAGE>
-micro_proxy deploy <APP> --image <IMAGE> --force
-micro_proxy rollback <APP>
+micro_proxy deploy <APP_NAME> --image <IMAGE_REF>
+micro_proxy deploy <APP_NAME> --image <IMAGE_REF> --force
+micro_proxy rollback <APP_NAME>
 ```
 
 部署会先启动候选容器并等待健康检查，通过后平滑重载 Nginx，最后停止旧容器；失败时旧版本保持运行。若服务尚未提供可用的健康检查接口，完成容器日志和实际访问验证后，可在该次部署显式加 `--force`。它会跳过本次健康检查等待，只会在候选容器仍处于运行状态时切换；容器已经退出时仍拒绝切换。默认不启用，且不会被保存到部署状态。
@@ -363,7 +369,7 @@ micro_proxy 使用 Docker 端口映射机制，将宿主机端口映射到容器
 | 名称 | 来源 | 推导规则 | 示例 |
 |------|------|----------|------|
 | **app.name** | 目录名（自动推导） | 直接子目录：目录名即 `app.name`；嵌套目录：路径组件用 `_` 拼接 | `my_app`、`group_my_app` |
-| **Docker image name** | 从 `app.name` 推导 | `{app.name}:latest` | `my_app:latest` |
+| **Docker 镜像引用** | 从 `app.name` 推导 | `{app.name}:sha-<哈希>` | `my_app:sha-0123456789ab` |
 | **nginx 变量名** | 从 `app.name` 推导 | `{app.name}_upstream_host` | `$my_app_upstream_host` |
 | **container_name** | 用户在 `micro-app.yml` 中配置 | 不推导，直接配置，需全局唯一 | `my-container` |
 
@@ -372,7 +378,7 @@ micro_proxy 使用 Docker 端口映射机制，将宿主机端口映射到容器
 ```
 目录名 (my_app/)
   ├──→ app.name = "my_app"
-  │      ├──→ Docker image = "my_app:latest"
+  │      ├──→ Docker image = "my_app:sha-<哈希>"
   │      └──→ nginx 变量 = "$my_app_upstream_host"
   │
   └── micro-app.yml

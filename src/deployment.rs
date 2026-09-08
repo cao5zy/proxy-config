@@ -11,7 +11,9 @@ use std::path::{Path, PathBuf};
 pub struct DeploymentState {
     pub active_image: Option<String>,
     pub previous_image: Option<String>,
-    pub candidate_image: Option<String>,
+    /// 早于 `previous_image` 的已部署镜像，按部署时间由新到旧排列。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub history_images: Vec<String>,
     pub active_container: Option<String>,
     pub previous_container: Option<String>,
 }
@@ -112,6 +114,9 @@ impl DeploymentStore {
             .map_err(|e| Error::State(format!("读取部署状态 {:?} 失败: {}", self.path, e)))?;
         self.states = serde_yaml::from_str(&content)
             .map_err(|e| Error::State(format!("解析部署状态 {:?} 失败: {}", self.path, e)))?;
+        for state in self.states.values_mut() {
+            state.normalize_history();
+        }
         Ok(())
     }
 
@@ -130,11 +135,17 @@ impl DeploymentStore {
         &self.states
     }
 
-    pub fn set_candidate(&mut self, app_name: &str, image: String) {
+    pub fn history_images(&self, app_name: &str) -> &[String] {
         self.states
-            .entry(app_name.to_string())
-            .or_default()
-            .candidate_image = Some(image);
+            .get(app_name)
+            .map(|state| state.history_images.as_slice())
+            .unwrap_or(&[])
+    }
+
+    pub fn clear_history_images(&mut self) {
+        for state in self.states.values_mut() {
+            state.history_images.clear();
+        }
     }
 
     pub fn migrate_legacy(
@@ -159,15 +170,21 @@ impl DeploymentStore {
 
     pub fn activate(&mut self, app_name: &str, image: String, container: String) -> Result<()> {
         let state = self.states.entry(app_name.to_string()).or_default();
-        if state.candidate_image.as_deref() != Some(image.as_str()) {
+        if state.active_image.as_deref() == Some(image.as_str()) {
             return Err(Error::State(format!(
-                "应用 '{}' 的镜像 '{}' 不是候选镜像",
+                "应用 '{}' 的镜像 '{}' 已是活动版本",
                 app_name, image
             )));
         }
+        state.normalize_history();
+        state.history_images.retain(|history| history != &image);
+        let old_previous_image = state.previous_image.take();
         state.previous_image = state.active_image.replace(image);
         state.previous_container = state.active_container.replace(container);
-        state.candidate_image = None;
+        if old_previous_image != state.active_image {
+            state.prepend_history(old_previous_image);
+        }
+        state.normalize_history();
         Ok(())
     }
 
@@ -186,7 +203,28 @@ impl DeploymentStore {
             .ok_or_else(|| Error::State(format!("应用 '{}' 没有可回滚容器", app_name)))?;
         std::mem::swap(&mut state.active_image, &mut state.previous_image);
         std::mem::swap(&mut state.active_container, &mut state.previous_container);
+        state.normalize_history();
         Ok((image, container))
+    }
+}
+
+impl DeploymentState {
+    fn prepend_history(&mut self, image: Option<String>) {
+        if let Some(image) = image {
+            self.history_images.insert(0, image);
+        }
+    }
+
+    fn normalize_history(&mut self) {
+        let mut normalized = Vec::with_capacity(self.history_images.len());
+        for image in self.history_images.drain(..) {
+            let is_deployed = self.active_image.as_deref() == Some(image.as_str())
+                || self.previous_image.as_deref() == Some(image.as_str());
+            if !is_deployed && !normalized.contains(&image) {
+                normalized.push(image);
+            }
+        }
+        self.history_images = normalized;
     }
 }
 
@@ -218,7 +256,6 @@ mod tests {
     fn test_activate_records_previous_version() {
         let mut store = DeploymentStore::new("unused.yml");
         store.migrate_legacy("api", "api", true);
-        store.set_candidate("api", "api:sha-new".to_string());
         store
             .activate("api", "api:sha-new".to_string(), "api--new".to_string())
             .unwrap();
@@ -228,34 +265,111 @@ mod tests {
     }
 
     #[test]
-    fn test_activate_rejects_non_candidate_image() {
+    fn test_activate_moves_superseded_rollback_version_to_history() {
         let mut store = DeploymentStore::new("unused.yml");
+        store.migrate_legacy("api", "api", true);
+        store
+            .activate("api", "api:sha-first".to_string(), "api--first".to_string())
+            .unwrap();
+
+        store
+            .activate(
+                "api",
+                "api:sha-second".to_string(),
+                "api--second".to_string(),
+            )
+            .unwrap();
+
+        assert_eq!(store.history_images("api"), ["api:latest"]);
+    }
+
+    #[test]
+    fn test_activate_historical_image_removes_it_from_history() {
+        let mut store = DeploymentStore::new("unused.yml");
+        store.migrate_legacy("api", "api", true);
+        store
+            .activate("api", "api:sha-first".to_string(), "api--first".to_string())
+            .unwrap();
+        store
+            .activate(
+                "api",
+                "api:sha-second".to_string(),
+                "api--second".to_string(),
+            )
+            .unwrap();
+        store
+            .activate("api", "api:latest".to_string(), "api".to_string())
+            .unwrap();
+
+        let state = store.state("api").unwrap();
+        assert_eq!(state.active_image.as_deref(), Some("api:latest"));
+        assert_eq!(state.previous_image.as_deref(), Some("api:sha-second"));
+        assert_eq!(state.history_images, ["api:sha-first"]);
+    }
+
+    #[test]
+    fn test_clear_history_images_keeps_active_and_previous_versions() {
+        let mut store = DeploymentStore::new("unused.yml");
+        store.migrate_legacy("api", "api", true);
+        store
+            .activate("api", "api:sha-first".to_string(), "api--first".to_string())
+            .unwrap();
+        store
+            .activate(
+                "api",
+                "api:sha-second".to_string(),
+                "api--second".to_string(),
+            )
+            .unwrap();
+
+        store.clear_history_images();
+
+        let state = store.state("api").unwrap();
+        assert_eq!(state.active_image.as_deref(), Some("api:sha-second"));
+        assert_eq!(state.previous_image.as_deref(), Some("api:sha-first"));
+        assert!(state.history_images.is_empty());
+    }
+
+    #[test]
+    fn test_load_ignores_legacy_candidate_state() {
+        let state: DeploymentState = serde_yaml::from_str(
+            "active_image: api:sha-active\ncandidate_image: api:sha-candidate\n",
+        )
+        .unwrap();
+        let mut state = state;
+        state.normalize_history();
+
+        assert!(state.history_images.is_empty());
+        let serialized = serde_yaml::to_string(&state).unwrap();
+        assert!(!serialized.contains("history_images:"));
+        assert!(!serialized.contains("candidate_image:"));
+    }
+
+    #[test]
+    fn test_activate_rejects_current_active_image() {
+        let mut store = DeploymentStore::new("unused.yml");
+        store.migrate_legacy("api", "api", true);
         assert!(store
-            .activate("api", "api:sha-nope".to_string(), "api--nope".to_string())
+            .activate("api", "api:latest".to_string(), "api".to_string())
             .is_err());
     }
 
     #[test]
-    fn test_migrate_legacy_preserves_candidate_and_registers_running_legacy_app() {
+    fn test_migrate_legacy_registers_running_legacy_app() {
         let mut store = DeploymentStore::new("unused.yml");
-        store.set_candidate("api", "api:sha-candidate".to_string());
 
         assert!(store.migrate_legacy("api", "api-container", true));
 
         let state = store.state("api").unwrap();
         assert_eq!(state.active_image.as_deref(), Some("api:latest"));
         assert_eq!(state.active_container.as_deref(), Some("api-container"));
-        assert_eq!(
-            state.candidate_image.as_deref(),
-            Some("api:sha-candidate")
-        );
+        assert!(state.history_images.is_empty());
     }
 
     #[test]
     fn test_rollback_swaps_active_and_previous() {
         let mut store = DeploymentStore::new("unused.yml");
         store.migrate_legacy("api", "api", true);
-        store.set_candidate("api", "api:sha-new".to_string());
         store
             .activate("api", "api:sha-new".to_string(), "api--new".to_string())
             .unwrap();
