@@ -6,6 +6,38 @@ use crate::{Error, Result};
 use std::path::Path;
 use std::process::Command;
 
+/// 生成 Docker 构建命令中与构建方式相关的参数。
+///
+/// 指定目标平台时使用 Buildx 并加载单平台结果，以便后续 `docker save`
+/// 能导出该镜像；未指定时保持既有的 `docker build` 行为。
+pub fn docker_build_args(
+    image_name: &str,
+    dockerfile_path: &Path,
+    no_cache: bool,
+    build_platform: Option<&str>,
+) -> Vec<String> {
+    let mut args = match build_platform {
+        Some(platform) => vec![
+            "buildx".to_string(),
+            "build".to_string(),
+            "--platform".to_string(),
+            platform.to_string(),
+            "--load".to_string(),
+        ],
+        None => vec!["build".to_string()],
+    };
+    args.extend([
+        "-t".to_string(),
+        image_name.to_string(),
+        "-f".to_string(),
+        dockerfile_path.display().to_string(),
+    ]);
+    if no_cache {
+        args.push("--no-cache".to_string());
+    }
+    args
+}
+
 /// 返回源包导出镜像归档的固定路径。
 ///
 /// 固定为应用目录下的 image.tar，使部署端的 micro-app.yml
@@ -94,6 +126,7 @@ pub fn save_image_archive<P: AsRef<Path>>(image: &str, archive_path: P) -> Resul
 /// - `build_context`: 构建上下文路径
 /// - `env_file`: 环境变量文件路径（可选）
 /// - `no_cache`: 是否禁用构建缓存
+/// - `build_platform`: 目标镜像平台（可选），例如 `linux/amd64`
 ///
 /// # 返回
 /// 返回构建结果
@@ -103,6 +136,7 @@ pub fn build_image<P: AsRef<Path>>(
     build_context: P,
     env_file: Option<P>,
     no_cache: bool,
+    build_platform: Option<&str>,
 ) -> Result<()> {
     let dockerfile_path = dockerfile_path.as_ref();
     let build_context = build_context.as_ref();
@@ -111,6 +145,7 @@ pub fn build_image<P: AsRef<Path>>(
     log::debug!("Dockerfile路径: {:?}", dockerfile_path);
     log::debug!("构建上下文: {:?}", build_context);
     log::debug!("禁用缓存: {}", no_cache);
+    log::debug!("目标平台: {:?}", build_platform);
 
     // 检查Dockerfile是否存在
     if !dockerfile_path.exists() {
@@ -132,15 +167,16 @@ pub fn build_image<P: AsRef<Path>>(
 
     // 构建docker build命令
     let mut cmd = Command::new("docker");
-    cmd.arg("build")
-        .arg("-t")
-        .arg(image_name)
-        .arg("-f")
-        .arg(dockerfile_path);
+    cmd.args(docker_build_args(
+        image_name,
+        dockerfile_path,
+        no_cache,
+        build_platform,
+    ));
 
-    // 如果需要禁用缓存，添加--no-cache参数
-    if no_cache {
-        cmd.arg("--no-cache");
+    if let Some(platform) = build_platform {
+        log::info!("使用 Buildx 构建目标平台 {} 并加载单平台镜像", platform);
+    } else if no_cache {
         log::info!("已启用 --no-cache 参数，将不使用构建缓存");
     }
 
@@ -262,6 +298,29 @@ pub fn image_exists(image_name: &str) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_docker_build_args_uses_buildx_for_target_platform() {
+        assert_eq!(
+            docker_build_args(
+                "api:sha-0123456789ab",
+                Path::new("/apps/api/Dockerfile"),
+                false,
+                Some("linux/amd64"),
+            ),
+            vec![
+                "buildx",
+                "build",
+                "--platform",
+                "linux/amd64",
+                "--load",
+                "-t",
+                "api:sha-0123456789ab",
+                "-f",
+                "/apps/api/Dockerfile",
+            ]
+        );
+    }
     use tempfile::TempDir;
 
     #[test]
@@ -292,6 +351,7 @@ mod tests {
             temp_dir.path(),
             None::<&Path>,
             false,
+            None,
         );
         assert!(result.is_err());
     }
@@ -308,6 +368,7 @@ mod tests {
             context_path.as_path(),
             None::<&Path>,
             false,
+            None,
         );
         assert!(result.is_err());
     }

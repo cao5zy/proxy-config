@@ -28,6 +28,10 @@ pub struct MicroAppConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_archive: Option<String>,
 
+    /// 源码包的目标镜像平台，例如 `linux/amd64`。配置后使用 Docker Buildx 构建。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_platform: Option<String>,
+
     /// 访问路径（static/api类型必需）
     #[serde(default)]
     pub routes: Vec<String>,
@@ -100,6 +104,29 @@ pub fn validate_healthcheck_path(path: &str) -> Result<()> {
     Ok(())
 }
 
+/// 验证 Buildx 单平台目标格式。
+pub fn validate_build_platform(platform: &str) -> Result<()> {
+    let parts = platform.split('/').collect::<Vec<_>>();
+    if !(2..=3).contains(&parts.len()) || parts[0] != "linux" {
+        return Err(Error::Config(format!(
+            "build_platform '{}' 必须采用 linux/<arch> 或 linux/<arch>/<variant> 格式",
+            platform
+        )));
+    }
+    if parts.iter().any(|part| {
+        part.is_empty()
+            || !part
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'))
+    }) {
+        return Err(Error::Config(format!(
+            "build_platform '{}' 包含无效的平台组件",
+            platform
+        )));
+    }
+    Ok(())
+}
+
 impl MicroAppConfig {
     /// 从文件加载微应用配置
     pub fn from_file<P: Into<PathBuf>>(path: P) -> Result<Self> {
@@ -161,6 +188,15 @@ impl MicroAppConfig {
                 "微应用 '{}' 使用 image 包时必须配置 image_archive",
                 app_name
             )));
+        }
+        if self.package_type == "image" && self.build_platform.is_some() {
+            return Err(Error::Config(format!(
+                "微应用 '{}' 使用 image 包时不能配置 build_platform",
+                app_name
+            )));
+        }
+        if let Some(platform) = &self.build_platform {
+            validate_build_platform(platform)?;
         }
 
         // 验证 app_type
@@ -266,6 +302,29 @@ app_type: "api"
         let config = MicroAppConfig::from_file(&config_path).unwrap();
         assert_eq!(config.package_type, "source");
         assert_eq!(config.image_archive, None);
+        assert_eq!(config.build_platform, None);
+    }
+
+    #[test]
+    fn test_micro_app_config_reads_valid_source_build_platform() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("micro-app.yml");
+        std::fs::write(
+            &config_path,
+            "routes: [\"/\"]\ncontainer_name: test\ncontainer_port: 80\napp_type: static\nbuild_platform: linux/amd64\n",
+        )
+        .unwrap();
+
+        let config = MicroAppConfig::from_file(&config_path).unwrap();
+        assert_eq!(config.build_platform.as_deref(), Some("linux/amd64"));
+        assert!(config.validate("test-app").is_ok());
+    }
+
+    #[test]
+    fn test_validate_build_platform_rejects_non_linux_or_incomplete_values() {
+        assert!(validate_build_platform("amd64").is_err());
+        assert!(validate_build_platform("darwin/arm64").is_err());
+        assert!(validate_build_platform("linux/").is_err());
     }
 
     #[test]
@@ -273,6 +332,7 @@ app_type: "api"
         let config = MicroAppConfig {
             package_type: "image".to_string(),
             image_archive: None,
+            build_platform: None,
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
             container_port: 80,
@@ -293,6 +353,7 @@ app_type: "api"
         let config = MicroAppConfig {
             package_type: "source".to_string(),
             image_archive: None,
+            build_platform: None,
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
             container_port: 80,
@@ -317,6 +378,7 @@ app_type: "api"
         let config = MicroAppConfig {
             package_type: "source".to_string(),
             image_archive: None,
+            build_platform: None,
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
             container_port: 80,
@@ -339,6 +401,7 @@ app_type: "api"
         let config = MicroAppConfig {
             package_type: "source".to_string(),
             image_archive: None,
+            build_platform: None,
             routes: vec!["/".to_string()],
             container_name: "".to_string(),
             container_port: 80,
@@ -364,6 +427,7 @@ app_type: "api"
         let config = MicroAppConfig {
             package_type: "source".to_string(),
             image_archive: None,
+            build_platform: None,
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
             container_port: 0,
@@ -389,6 +453,7 @@ app_type: "api"
         let config = MicroAppConfig {
             package_type: "source".to_string(),
             image_archive: None,
+            build_platform: None,
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
             container_port: 80,
@@ -414,6 +479,7 @@ app_type: "api"
         let config = MicroAppConfig {
             package_type: "source".to_string(),
             image_archive: None,
+            build_platform: None,
             routes: vec![],
             container_name: "test-container".to_string(),
             container_port: 80,
@@ -439,6 +505,7 @@ app_type: "api"
         let config = MicroAppConfig {
             package_type: "source".to_string(),
             image_archive: None,
+            build_platform: None,
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
             container_port: 6379,
@@ -501,6 +568,7 @@ app_type: "api"
         let config = MicroAppConfig {
             package_type: "source".to_string(),
             image_archive: None,
+            build_platform: None,
             routes: vec!["/gg123_test/".to_string()],
             container_name: "test-container".to_string(),
             container_port: 80,

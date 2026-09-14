@@ -83,6 +83,7 @@ nginx_extra_config: |          # 额外的 nginx 配置（可选）
 | `app_type` | ✅ | 应用类型：static, api, internal |
 | `package_type` | ❌ | 包类型：`source`（默认）或 `image` |
 | `image_archive` | 镜像包必需 | 归档路径（相对于应用目录），推荐固定为 `image.tar` |
+| `build_platform` | 源码包可选 | Buildx 目标平台，如 `linux/amd64`；构建机与部署机 CPU 架构不同时使用 |
 | `description` | ❌ | 应用描述 |
 | `nginx_extra_config` | ❌ | 额外的 nginx 配置（仅 static 和 api 有效） |
 
@@ -90,7 +91,7 @@ nginx_extra_config: |          # 额外的 nginx 配置（可选）
 
 ### 源码构建到镜像部署
 
-构建机使用 `package_type: source` 并执行：
+构建机使用 `package_type: source` 并执行。若构建机为 Apple Silicon Mac、部署机为 AMD64 Linux，在源码包的 `micro-app.yml` 中加入 `build_platform: linux/amd64`；此时命令使用 Docker Buildx 构建并加载 AMD64 单平台镜像，且该配置变化会生成不同的不可变镜像标签：
 
 ```bash
 micro_proxy build my_app --export

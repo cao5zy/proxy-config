@@ -132,7 +132,7 @@ micro_proxy start
 micro_proxy build [APP_NAME...] [--no-cache] [--export]
 ```
 
-不改变容器、Nginx、流量或部署状态。`package_type: source` 时使用 Dockerfile 构建并生成不可变的 `app:sha-<哈希>` 标签；追加 `--export` 会将该镜像导出为 Dockerfile 同级、文件名固定的 `image.tar`。`package_type: image` 时执行 `docker load` 导入 `image_archive`，并保留构建机写入归档的标签。`APP_NAME` 仅填写应用名（`app.name`，通常由应用目录推导），不接受 `container_name` 或镜像引用。
+不改变容器、Nginx、流量或部署状态。`package_type: source` 时使用 Dockerfile 构建并生成不可变的 `app:sha-<哈希>` 标签；若配置 `build_platform`，则使用 Docker Buildx 构建该目标平台并加载单平台结果。追加 `--export` 会将该镜像导出为 Dockerfile 同级、文件名固定的 `image.tar`。`package_type: image` 时执行 `docker load` 导入 `image_archive`，并保留构建机写入归档的标签。`APP_NAME` 仅填写应用名（`app.name`，通常由应用目录推导），不接受 `container_name` 或镜像引用。
 
 ```bash
 micro_proxy build api
@@ -256,6 +256,10 @@ app_type: "static"
 # source：通过 Dockerfile 构建；image：导入镜像归档，不需要源码或 Dockerfile
 package_type: "source"
 
+# 仅 source 模式可选。Mac（尤其 Apple Silicon）构建并部署到 AMD64 Linux 时设置。
+# 配置后使用 docker buildx build --platform linux/amd64 --load。
+# build_platform: "linux/amd64"
+
 # 仅 image 模式必需。相对路径基于应用目录。
 # image_archive: "image.tar"
 
@@ -283,7 +287,8 @@ proxy_send_timeout: 60
 **首次在部署机上线时，每一个应用都必须先 `build`（导入镜像），再 `deploy`（选择活动镜像）。** `build` 不会写入部署状态，`start` 也不会猜测应使用哪个刚导入的镜像；如果任何已发现应用未完成首次 `deploy`，`micro_proxy start` 会报“没有活动部署状态”。全部应用部署完成后，后续仅需运行 `micro_proxy start` 来恢复它们。
 
 ```bash
-# 构建机
+# 构建机（例如 Apple Silicon Mac 部署至 AMD64 Linux 时，在源码包的 micro-app.yml 设置
+# build_platform: "linux/amd64"；这会产生独立的不可变镜像标签）
 micro_proxy build my_app --export
 # 输出：my_app:sha-0123456789ab，以及 my_app/image.tar
 

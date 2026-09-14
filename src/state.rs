@@ -339,4 +339,17 @@ mod tests {
 
         assert_eq!(hash1, hash2);
     }
+
+    #[test]
+    fn test_calculate_directory_hash_changes_when_build_platform_changes() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = temp_dir.path().join("micro-app.yml");
+        fs::write(&config, "build_platform: linux/arm64\n").unwrap();
+        let arm64_hash = calculate_directory_hash(temp_dir.path()).unwrap();
+
+        fs::write(&config, "build_platform: linux/amd64\n").unwrap();
+        let amd64_hash = calculate_directory_hash(temp_dir.path()).unwrap();
+
+        assert_ne!(arm64_hash, amd64_hash);
+    }
 }

@@ -410,6 +410,7 @@ fn execute_build(
                     &micro_app.path,
                     Some(&micro_app.env_file),
                     no_cache,
+                    micro_app.config.build_platform.as_deref(),
                 )?;
             }
             state_manager.update_state(&app.name, source_hash, true);
