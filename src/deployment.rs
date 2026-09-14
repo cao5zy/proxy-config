@@ -67,8 +67,10 @@ pub fn active_runtime_apps(
     Ok((runtime_apps, images))
 }
 
-/// 生成一次候选发布所需的运行配置。尚未部署的其他应用保留在配置中，
-/// 但不会被赋予不存在的镜像引用。
+/// 生成一次候选发布所需的运行配置。
+///
+/// 仅包含候选应用和已有活动部署的应用，避免 Compose 为尚未部署的应用
+/// 回退到 `<app>:latest` 并在首次发布时意外拉取镜像。
 pub fn runtime_apps_with_candidate(
     apps: &[AppConfig],
     states: &HashMap<String, DeploymentState>,
@@ -87,13 +89,14 @@ pub fn runtime_apps_with_candidate(
         if app.name == candidate_app {
             runtime.container_name = candidate_container.clone();
             images.insert(app.name.clone(), candidate_image.to_string());
+            runtime_apps.push(runtime);
         } else if let Some(state) = states.get(&app.name) {
             if let (Some(image), Some(container)) = (&state.active_image, &state.active_container) {
                 runtime.container_name = container.clone();
                 images.insert(app.name.clone(), image.clone());
+                runtime_apps.push(runtime);
             }
         }
-        runtime_apps.push(runtime);
     }
     Ok((runtime_apps, images, candidate_container))
 }
@@ -438,5 +441,40 @@ mod tests {
         assert_eq!(apps[0].container_name, "api--abc");
         assert_eq!(images["api"], "api:sha-abc");
         assert_eq!(container, "api--abc");
+    }
+
+    #[test]
+    fn test_runtime_apps_with_candidate_excludes_undeployed_apps() {
+        let candidate = AppConfig {
+            name: "postgres".to_string(),
+            routes: vec![],
+            container_name: "postgres".to_string(),
+            container_port: 5432,
+            healthcheck_path: "/".to_string(),
+            app_type: crate::config::AppType::Internal,
+            description: None,
+            nginx_extra_config: None,
+            path: None,
+            docker_volumes: vec![],
+            run_as_user: None,
+            proxy_connect_timeout: None,
+            proxy_read_timeout: None,
+            proxy_send_timeout: None,
+        };
+        let mut undeployed = candidate.clone();
+        undeployed.name = "platform".to_string();
+        undeployed.container_name = "platform".to_string();
+
+        let (apps, images, _) = runtime_apps_with_candidate(
+            &[candidate, undeployed],
+            &HashMap::new(),
+            "postgres",
+            "postgres:sha-abc",
+        )
+        .unwrap();
+
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].name, "postgres");
+        assert_eq!(images.len(), 1);
     }
 }

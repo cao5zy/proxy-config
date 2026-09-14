@@ -88,18 +88,21 @@ cp micro-app.yml.example ./micro-apps/my-app/micro-app.yml
 ### 3. 构建并部署微应用
 
 ```bash
-# 仅构建镜像，不影响正在运行的站点
+# 首次部署：先为所有应用构建/导入镜像
 micro_proxy build
 
-# APP_NAME 使用应用名；镜像引用从 build 的输出复制
+# 首次部署：每个应用都必须明确选择一个活动镜像。
+# APP_NAME 使用应用名；镜像引用从 build 的输出复制。
 micro_proxy deploy my-app --image my-app:sha-0123456789ab
+
+# 在每个应用都完成 deploy 后，按活动部署状态启动或恢复全部容器
+micro_proxy start -v
 
 # 回滚到上一部署版本，不重新构建源码
 micro_proxy rollback my-app
-
-# 按活动部署状态启动或恢复容器，不扫描源码、不构建镜像
-micro_proxy start -v
 ```
+
+首次部署时，配置中发现的**每一个应用**都必须完成一次 `build` 和 `deploy`；仅导入镜像但未执行 `deploy` 的应用没有活动部署状态，`micro_proxy start` 会拒绝启动。后续服务器重启或容器停止时，只要镜像和部署状态文件仍在，直接运行 `micro_proxy start` 即可恢复全部应用。发布单个应用的新版本时，也只需要对该应用重新执行 `build` 和 `deploy`。
 
 ### 4. 访问应用
 
@@ -275,7 +278,9 @@ proxy_send_timeout: 60
 
 #### 镜像包发布
 
-镜像包仅保留运行所需配置、可选 `.env`、可选 `micro-app.volumes.yml` 与镜像归档；不需要上传源码。构建机必须先通过源码模式生成不可变标签，再用 `--export` 导出。归档路径始终是应用目录中的 `image.tar`，不随镜像标签变化：
+镜像包仅保留运行所需配置、可选 `.env`、可选 `micro-app.volumes.yml` 与镜像归档；不需要上传源码。构建机必须先通过源码模式生成不可变标签，再用 `--export` 导出。归档路径始终是应用目录中的 `image.tar`，不随镜像标签变化。
+
+**首次在部署机上线时，每一个应用都必须先 `build`（导入镜像），再 `deploy`（选择活动镜像）。** `build` 不会写入部署状态，`start` 也不会猜测应使用哪个刚导入的镜像；如果任何已发现应用未完成首次 `deploy`，`micro_proxy start` 会报“没有活动部署状态”。全部应用部署完成后，后续仅需运行 `micro_proxy start` 来恢复它们。
 
 ```bash
 # 构建机
@@ -284,12 +289,18 @@ micro_proxy build my_app --export
 
 # 部署机的 my_app/micro-app.yml 配置 package_type: image 与 image_archive: image.tar
 # 上传 image.tar、micro-app.yml 与可选 .env（无需上传源码或 Dockerfile）
+# 对每一个应用重复以下两步：
 micro_proxy build my_app    # 仅 docker load，不重新构建，也不改变部署状态
 micro_proxy deploy my_app --image my_app:sha-0123456789ab
+
+# 所有应用均已完成首次 deploy 后：
+micro_proxy start
+
+# 后续服务器重启或容器停止后：
 micro_proxy start
 ```
 
-构建机请将 `image.tar` 加入 `.dockerignore`，避免该归档被发送到下一次 Docker 构建上下文。镜像归档必须保留不可变标签；不要以 `latest` 覆盖不同版本。覆盖上传 `image.tar` 不会删除部署机已导入的旧镜像，中央部署状态仍会保护活动镜像和可回滚镜像，因此 `micro_proxy rollback my_app` 不需要源码或旧归档。
+发布 `my_app` 的新版本时，只需覆盖上传该应用的 `image.tar`，然后对它重新运行 `micro_proxy build my_app` 与 `micro_proxy deploy my_app --image <新镜像标签>`；其他应用无需重新部署。构建机请将 `image.tar` 加入 `.dockerignore`，避免该归档被发送到下一次 Docker 构建上下文。镜像归档必须保留不可变标签；不要以 `latest` 覆盖不同版本。覆盖上传 `image.tar` 不会删除部署机已导入的旧镜像，中央部署状态仍会保护活动镜像和可回滚镜像，因此 `micro_proxy rollback my_app` 不需要源码或旧归档。
 
 ### 数据持久化配置文件 (micro-app.volumes.yml)
 
