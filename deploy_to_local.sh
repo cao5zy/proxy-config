@@ -27,7 +27,6 @@ log_error() {
 
 # 项目配置
 PROJECT_NAME="micro_proxy"
-TARGET_DIR="target/release"
 BINARY_NAME="${PROJECT_NAME}"
 USER_BIN_DIR="${HOME}/bin"
 
@@ -56,8 +55,17 @@ fi
 
 log_info "编译成功"
 
+# Cargo 的 target-dir 可以由 ~/.cargo/config.toml 或 CARGO_TARGET_DIR 覆盖；
+# 不要假定产物一定在项目目录下的 target/ 中。
+TARGET_BASE_DIR=$(cargo metadata --no-deps --format-version 1 2>/dev/null \
+    | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')
+if [ -z "${TARGET_BASE_DIR}" ]; then
+    log_error "无法从 Cargo 元数据获取编译产物目录"
+    exit 1
+fi
+
 # 检查编译产物是否存在
-BINARY_PATH="${TARGET_DIR}/${BINARY_NAME}"
+BINARY_PATH="${TARGET_BASE_DIR}/release/${BINARY_NAME}"
 if [ ! -f "${BINARY_PATH}" ]; then
     log_error "编译产物未找到: ${BINARY_PATH}"
     exit 1

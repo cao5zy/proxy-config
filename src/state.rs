@@ -193,6 +193,16 @@ impl StateManager {
 /// # 返回
 /// 返回目录的hash值
 pub fn calculate_directory_hash<P: AsRef<Path>>(path: P) -> Result<String> {
+    calculate_directory_hash_excluding(path, &[])
+}
+
+/// 计算目录哈希，并忽略指定的文件路径。
+///
+/// 用于排除构建过程中生成、但不属于源码输入的发布产物。
+pub fn calculate_directory_hash_excluding<P: AsRef<Path>>(
+    path: P,
+    excluded_paths: &[PathBuf],
+) -> Result<String> {
     let path = path.as_ref();
     log::debug!("正在计算目录hash: {:?}", path);
 
@@ -210,6 +220,12 @@ pub fn calculate_directory_hash<P: AsRef<Path>>(path: P) -> Result<String> {
 
         // 跳过.git目录
         if entry.file_name() == ".git" {
+            continue;
+        }
+        if excluded_paths
+            .iter()
+            .any(|excluded| entry.path() == excluded)
+        {
             continue;
         }
 
@@ -304,6 +320,22 @@ mod tests {
 
         let hash1 = calculate_directory_hash(temp_dir.path()).unwrap();
         let hash2 = calculate_directory_hash(temp_dir.path()).unwrap();
+
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_calculate_directory_hash_excluding_paths_ignores_archive_changes() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_file = temp_dir.path().join("app.rs");
+        let archive = temp_dir.path().join("image.tar");
+        fs::write(&source_file, "source").unwrap();
+        fs::write(&archive, "first archive").unwrap();
+
+        let hash1 =
+            calculate_directory_hash_excluding(temp_dir.path(), &[archive.clone()]).unwrap();
+        fs::write(&archive, "second archive").unwrap();
+        let hash2 = calculate_directory_hash_excluding(temp_dir.path(), &[archive]).unwrap();
 
         assert_eq!(hash1, hash2);
     }

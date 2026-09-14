@@ -31,7 +31,8 @@
 | 文件 | 是否必需 | 说明 |
 |------|:--------:|------|
 | `micro-app.yml` | ✅ 必需 | 微应用配置文件，位于微应用根目录 |
-| `Dockerfile` | ✅ 必需 | Docker 镜像构建文件，位于微应用根目录 |
+| `Dockerfile` | 源码包必需 | `package_type: source` 时的 Docker 镜像构建文件，位于微应用根目录 |
+| `image.tar` | 镜像包必需 | `package_type: image` 时导入的镜像归档；由构建机执行 `micro_proxy build --export` 生成 |
 
 ### 可选文件
 
@@ -80,10 +81,29 @@ nginx_extra_config: |          # 额外的 nginx 配置（可选）
 | `container_name` | ✅ | 容器名称，**全局唯一**，不能重复 |
 | `container_port` | ✅ | 容器内部端口 |
 | `app_type` | ✅ | 应用类型：static, api, internal |
+| `package_type` | ❌ | 包类型：`source`（默认）或 `image` |
+| `image_archive` | 镜像包必需 | 归档路径（相对于应用目录），推荐固定为 `image.tar` |
 | `description` | ❌ | 应用描述 |
 | `nginx_extra_config` | ❌ | 额外的 nginx 配置（仅 static 和 api 有效） |
 
 **注意：** `docker_volumes` 字段已从 `micro-app.yml` 中移除，现在使用独立的 `micro-app.volumes.yml` 文件进行配置。详见[卷配置文件](#卷配置文件)章节。
+
+### 源码构建到镜像部署
+
+构建机使用 `package_type: source` 并执行：
+
+```bash
+micro_proxy build my_app --export
+```
+
+该命令构建带不可变标签的镜像，并在 Dockerfile 同级写入固定名称的 `image.tar`。将 `image.tar` 加入 `.dockerignore`，再将它和部署配置上传至部署机。部署机的配置使用：
+
+```yaml
+package_type: image
+image_archive: image.tar
+```
+
+部署机运行 `micro_proxy build my_app` 导入归档，然后用归档内的镜像标签执行 `deploy` 和 `start`。上传覆盖 `image.tar` 不会删除已导入的旧镜像，因此仍可回滚。
 
 ---
 

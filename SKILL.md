@@ -81,7 +81,7 @@ Every micro-app requires `micro-app.yml` in its root directory. Select one packa
 |------|-------------|
 | `micro-app.yml` | Core configuration: routes, container name, port, type, package mode |
 | `Dockerfile` | Required only for `package_type: source` (the default) |
-| `image.tar` (or another archive name) | Required only for `package_type: image`; exported with `docker save` |
+| `image.tar` | Required only for `package_type: image`; generated on the build host by `micro_proxy build --export` |
 
 **Optional:**
 
@@ -122,7 +122,7 @@ nginx_extra_config: |
 
 **Note:** The `docker_volumes` field has been removed from `micro-app.yml`. Use the separate `micro-app.volumes.yml` file instead.
 
-For image packages, build and tag the image in the build environment (for example `my_app:sha-0123456789ab`), export it with `docker save`, then set `package_type: image` and `image_archive: image.tar` on the deployment host. `micro_proxy build` imports the archive without changing central deployment state; use `deploy --image` to select it. Old imported tags remain locally available for `rollback` until cleaned as deployment history.
+For image packages, use `micro_proxy build --export` in the source-package build environment. It creates a tagged image (for example `my_app:sha-0123456789ab`) and always exports it as `image.tar` next to the Dockerfile. On the deployment host set `package_type: image` and `image_archive: image.tar`, then upload that archive without source or Dockerfile. `micro_proxy build` imports the archive without changing central deployment state; use `deploy --image` to select it. Overwriting the transferred `image.tar` does not remove old imported tags, so `rollback` remains available until deployment history is cleaned. Add `image.tar` to the build host's `.dockerignore`.
 
 ### 4. micro-app.volumes.yml Schema
 
@@ -577,7 +577,7 @@ Use the error tables in this document to help users diagnose issues.
 
 2. Generate required files
    ├── micro-app.yml (always)
-   ├── Dockerfile for source packages, or an image archive for image packages
+   ├── Dockerfile for source packages; run `micro_proxy build --export` to produce image.tar for image packages
    ├── nginx.conf (SPA required, others optional)
    └── micro-app.volumes.yml (persistence/permissions needed)
 

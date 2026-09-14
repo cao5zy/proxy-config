@@ -32,7 +32,7 @@ app_type: "static"
 package_type: "source"
 
 # 镜像归档（仅 package_type: image 时必需；相对路径基于本目录）
-# 使用 `docker save my_app:sha-0123456789ab -o image.tar` 在构建机生成。
+# 使用构建机的 `micro_proxy build my_app --export` 生成；文件名固定为 image.tar。
 # 部署机运行 `micro_proxy build my_app` 时会执行 docker load，且保留归档内的标签。
 # image_archive: "image.tar"
 

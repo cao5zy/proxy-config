@@ -126,10 +126,10 @@ micro_proxy start
 ### build - 构建镜像
 
 ```bash
-micro_proxy build [APP_NAME...] [--no-cache]
+micro_proxy build [APP_NAME...] [--no-cache] [--export]
 ```
 
-不改变容器、Nginx、流量或部署状态。`package_type: source` 时使用 Dockerfile 构建并生成不可变的 `app:sha-<哈希>` 标签；`package_type: image` 时执行 `docker load` 导入 `image_archive`，并保留构建机写入归档的标签。`APP_NAME` 仅填写应用名（`app.name`，通常由应用目录推导），不接受 `container_name` 或镜像引用。
+不改变容器、Nginx、流量或部署状态。`package_type: source` 时使用 Dockerfile 构建并生成不可变的 `app:sha-<哈希>` 标签；追加 `--export` 会将该镜像导出为 Dockerfile 同级、文件名固定的 `image.tar`。`package_type: image` 时执行 `docker load` 导入 `image_archive`，并保留构建机写入归档的标签。`APP_NAME` 仅填写应用名（`app.name`，通常由应用目录推导），不接受 `container_name` 或镜像引用。
 
 ```bash
 micro_proxy build api
@@ -275,20 +275,21 @@ proxy_send_timeout: 60
 
 #### 镜像包发布
 
-镜像包仅保留运行所需配置、可选 `.env`、可选 `micro-app.volumes.yml` 与镜像归档；不需要上传源码。构建机必须先通过源码模式生成不可变标签，再导出该标签：
+镜像包仅保留运行所需配置、可选 `.env`、可选 `micro-app.volumes.yml` 与镜像归档；不需要上传源码。构建机必须先通过源码模式生成不可变标签，再用 `--export` 导出。归档路径始终是应用目录中的 `image.tar`，不随镜像标签变化：
 
 ```bash
 # 构建机
-micro_proxy build my_app
-docker save my_app:sha-0123456789ab -o image.tar
+micro_proxy build my_app --export
+# 输出：my_app:sha-0123456789ab，以及 my_app/image.tar
 
 # 部署机的 my_app/micro-app.yml 配置 package_type: image 与 image_archive: image.tar
+# 上传 image.tar、micro-app.yml 与可选 .env（无需上传源码或 Dockerfile）
 micro_proxy build my_app    # 仅 docker load，不重新构建，也不改变部署状态
 micro_proxy deploy my_app --image my_app:sha-0123456789ab
 micro_proxy start
 ```
 
-镜像归档必须保留不可变标签；不要以 `latest` 覆盖不同版本。导入新版本不会删除旧镜像，中央部署状态仍会保护活动镜像和可回滚镜像，因此 `micro_proxy rollback my_app` 不需要源码或旧归档。
+构建机请将 `image.tar` 加入 `.dockerignore`，避免该归档被发送到下一次 Docker 构建上下文。镜像归档必须保留不可变标签；不要以 `latest` 覆盖不同版本。覆盖上传 `image.tar` 不会删除部署机已导入的旧镜像，中央部署状态仍会保护活动镜像和可回滚镜像，因此 `micro_proxy rollback my_app` 不需要源码或旧归档。
 
 ### 数据持久化配置文件 (micro-app.volumes.yml)
 

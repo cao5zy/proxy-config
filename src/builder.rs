@@ -6,6 +6,14 @@ use crate::{Error, Result};
 use std::path::Path;
 use std::process::Command;
 
+/// 返回源包导出镜像归档的固定路径。
+///
+/// 固定为应用目录下的 image.tar，使部署端的 micro-app.yml
+/// 无需随不可变镜像标签变化而修改。
+pub fn default_image_archive_path(app_path: &Path) -> std::path::PathBuf {
+    app_path.join("image.tar")
+}
+
 /// 从 `docker load` 的标准输出提取带标签的镜像引用。
 fn loaded_image_references(output: &str) -> Vec<String> {
     output
@@ -47,6 +55,35 @@ pub fn load_image_archive<P: AsRef<Path>>(archive_path: P) -> Result<Vec<String>
         )));
     }
     Ok(references)
+}
+
+/// 将带标签的 Docker 镜像导出为归档。
+pub fn save_image_archive<P: AsRef<Path>>(image: &str, archive_path: P) -> Result<()> {
+    let archive_path = archive_path.as_ref();
+    let parent = archive_path
+        .parent()
+        .ok_or_else(|| Error::Build(format!("镜像归档路径缺少父目录: {:?}", archive_path)))?;
+    if !parent.is_dir() {
+        return Err(Error::Build(format!("镜像归档目录不存在: {:?}", parent)));
+    }
+
+    let output = Command::new("docker")
+        .arg("save")
+        .arg("-o")
+        .arg(archive_path)
+        .arg(image)
+        .output()
+        .map_err(|e| Error::Build(format!("执行 docker save 失败: {}", e)))?;
+    if !output.status.success() {
+        return Err(Error::Build(format!(
+            "导出镜像 {} 到 {:?} 失败: {}",
+            image,
+            archive_path,
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+
+    Ok(())
 }
 
 /// 构建Docker镜像
@@ -233,6 +270,14 @@ mod tests {
         assert_eq!(
             loaded_image_references(output),
             vec!["my-api:sha-a1b2c3", "helper:1.0"]
+        );
+    }
+
+    #[test]
+    fn test_default_image_archive_path_is_image_tar_in_app_root() {
+        assert_eq!(
+            default_image_archive_path(Path::new("/apps/my_api")),
+            Path::new("/apps/my_api/image.tar")
         );
     }
 

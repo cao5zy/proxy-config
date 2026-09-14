@@ -12,7 +12,7 @@ use crate::discovery::{discover_micro_apps, get_micro_app_names, to_app_configs,
 use crate::network::{generate_network_list, NetworkAddressInfo};
 use crate::nginx;
 use crate::script;
-use crate::state::{calculate_directory_hash, StateManager};
+use crate::state::{calculate_directory_hash_excluding, StateManager};
 use crate::volumes_config::VolumesConfig;
 use crate::{builder, compose, Error, Result};
 use clap::{Parser, Subcommand};
@@ -55,6 +55,9 @@ enum Commands {
         /// 禁用 Docker 构建缓存
         #[arg(long)]
         no_cache: bool,
+        /// 构建后将源包镜像导出为应用目录下的 image.tar
+        #[arg(long)]
+        export: bool,
     },
     /// 将已构建的镜像部署到指定应用
     Deploy {
@@ -120,7 +123,11 @@ pub fn run(args: &[String]) -> Result<()> {
     // 执行子命令
     match cli.command {
         Commands::Start => execute_start(&config)?,
-        Commands::Build { apps, no_cache } => execute_build(&config, &apps, no_cache)?,
+        Commands::Build {
+            apps,
+            no_cache,
+            export,
+        } => execute_build(&config, &apps, no_cache, export)?,
         Commands::Deploy { app, image, force } => execute_deploy(&config, &app, &image, force)?,
         Commands::Rollback { app } => execute_rollback(&config, &app)?,
         Commands::Stop => {
@@ -356,7 +363,12 @@ fn execute_start(config: &ProxyConfig) -> Result<()> {
 }
 
 /// 构建镜像；此操作不生成运行配置、不写部署状态，也不操作容器。
-fn execute_build(config: &ProxyConfig, requested_apps: &[String], no_cache: bool) -> Result<()> {
+fn execute_build(
+    config: &ProxyConfig,
+    requested_apps: &[String],
+    no_cache: bool,
+    export: bool,
+) -> Result<()> {
     let micro_apps = discover_micro_apps(&config.scan_dirs)?;
     let discovered_names = get_micro_app_names(&micro_apps);
     let apps = to_app_configs(&micro_apps);
@@ -384,7 +396,9 @@ fn execute_build(config: &ProxyConfig, requested_apps: &[String], no_cache: bool
         }
         let micro_app = get_micro_app_info(app, &micro_apps)?;
         if micro_app.config.package_type == "source" {
-            let source_hash = calculate_directory_hash(&micro_app.path)?;
+            let archive = builder::default_image_archive_path(&micro_app.path);
+            let source_hash =
+                calculate_directory_hash_excluding(&micro_app.path, &[archive.clone()])?;
             let image = image_reference(&app.name, &source_hash);
             if !builder::image_exists(&image)? {
                 if let Some(script_path) = &micro_app.setup_script {
@@ -403,10 +417,21 @@ fn execute_build(config: &ProxyConfig, requested_apps: &[String], no_cache: bool
                 "已构建镜像: {}（应用：{}，容器：{}）",
                 image, app.name, app.container_name
             );
+            if export {
+                builder::save_image_archive(&image, &archive)?;
+                println!("已导出镜像归档: {}（镜像：{}）", archive.display(), image);
+            }
         } else {
-            let archive = micro_app.image_archive.as_ref().ok_or_else(|| {
-                Error::Build(format!("镜像应用 '{}' 缺少镜像归档", app.name))
-            })?;
+            if export {
+                return Err(Error::Config(format!(
+                    "应用 '{}' 使用 package_type: image，不能使用 --export",
+                    app.name
+                )));
+            }
+            let archive = micro_app
+                .image_archive
+                .as_ref()
+                .ok_or_else(|| Error::Build(format!("镜像应用 '{}' 缺少镜像归档", app.name)))?;
             let images = builder::load_image_archive(archive)?;
             for image in images {
                 println!(
@@ -980,8 +1005,10 @@ mod tests {
 
     #[test]
     fn test_cli_parse_build_and_deploy() {
-        let build = Cli::parse_from(["micro_proxy", "build", "api", "--no-cache"]);
-        assert!(matches!(build.command, Commands::Build { apps, no_cache } if apps == ["api"] && no_cache));
+        let build = Cli::parse_from(["micro_proxy", "build", "api", "--no-cache", "--export"]);
+        assert!(
+            matches!(build.command, Commands::Build { apps, no_cache, export } if apps == ["api"] && no_cache && export)
+        );
 
         let deploy = Cli::parse_from([
             "micro_proxy",
