@@ -132,7 +132,7 @@ micro_proxy start
 micro_proxy build [APP_NAME...] [--no-cache] [--export]
 ```
 
-不改变容器、Nginx、流量或部署状态。`package_type: source` 时使用 Dockerfile 构建并生成不可变的 `app:sha-<哈希>` 标签；若配置 `build_platform`，则使用 Docker Buildx 构建该目标平台并加载单平台结果。追加 `--export` 会将该镜像导出为 Dockerfile 同级、文件名固定的 `image.tar`。`package_type: image` 时执行 `docker load` 导入 `image_archive`，并保留构建机写入归档的标签。`APP_NAME` 仅填写应用名（`app.name`，通常由应用目录推导），不接受 `container_name` 或镜像引用。
+不改变容器、Nginx、流量或部署状态。`package_type: source` 时使用 Dockerfile 构建并生成不可变的 `app:sha-<哈希>` 标签；若配置 `build_platform`，则使用 Docker Buildx 构建该目标平台并加载单平台结果。追加 `--export` 会将该镜像导出为 Dockerfile 同级、文件名固定的 `image.tar`。`package_type: image` 时执行 `docker load` 导入 `image_archive`，并保留构建机写入归档的标签。`package_type: registry` 时不构建，镜像本地不存在才执行 `docker pull image`。`APP_NAME` 仅填写应用名（`app.name`，通常由应用目录推导），不接受 `container_name` 或镜像引用。
 
 ```bash
 micro_proxy build api
@@ -253,7 +253,7 @@ healthcheck_path: "/healthz"
 app_type: "static"
 
 # 应用包类型（可选，默认 source）
-# source：通过 Dockerfile 构建；image：导入镜像归档，不需要源码或 Dockerfile
+# source：通过 Dockerfile 构建；image：导入镜像归档；registry：直接使用仓库镜像
 package_type: "source"
 
 # 仅 source 模式可选。Mac（尤其 Apple Silicon）构建并部署到 AMD64 Linux 时设置。
@@ -262,6 +262,9 @@ package_type: "source"
 
 # 仅 image 模式必需。相对路径基于应用目录。
 # image_archive: "image.tar"
+
+# 仅 registry 模式必需。本地不存在时 micro_proxy build 会 docker pull；建议固定版本或 digest。
+# image: "postgres:15-alpine"
 
 # 应用描述（可选）
 description: "应用描述"
@@ -283,6 +286,8 @@ proxy_send_timeout: 60
 #### 镜像包发布
 
 镜像包仅保留运行所需配置、可选 `.env`、可选 `micro-app.volumes.yml` 与镜像归档；不需要上传源码。构建机必须先通过源码模式生成不可变标签，再用 `--export` 导出。归档路径始终是应用目录中的 `image.tar`，不随镜像标签变化。
+
+对于 Postgres、Redis 等没有自有源码、直接采用官方镜像的内部服务，使用 `package_type: registry` 和 `image: postgres:15.8-alpine`；它不需要 Dockerfile、源码或开发机导出的 archive。`micro_proxy build postgres` 只会在该镜像尚未存在时执行 `docker pull`，随后使用同一镜像引用执行 `deploy`。生产环境应固定版本或 digest，避免可变标签带来非预期升级。
 
 **首次在部署机上线时，每一个应用都必须先 `build`（导入镜像），再 `deploy`（选择活动镜像）。** `build` 不会写入部署状态，`start` 也不会猜测应使用哪个刚导入的镜像；如果任何已发现应用未完成首次 `deploy`，`micro_proxy start` 会报“没有活动部署状态”。全部应用部署完成后，后续仅需运行 `micro_proxy start` 来恢复它们。
 

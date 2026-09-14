@@ -29,6 +29,7 @@ app_type: "static"
 # 应用包类型（可选，默认 "source"）
 # - source: 从本目录 Dockerfile 和源码构建镜像
 # - image: 导入已在构建机打好标签的 Docker 镜像归档；此时不需要 Dockerfile 或源码
+# - registry: 直接使用镜像仓库中的已有镜像；不需要 Dockerfile、源码或 image.tar
 package_type: "source"
 
 # 目标镜像平台（仅 source 包可选）。
@@ -40,6 +41,10 @@ package_type: "source"
 # 使用构建机的 `micro_proxy build my_app --export` 生成；文件名固定为 image.tar。
 # 部署机运行 `micro_proxy build my_app` 时会执行 docker load，且保留归档内的标签。
 # image_archive: "image.tar"
+
+# 仓库镜像引用（仅 package_type: registry 时必需）。build 时本地不存在才会 docker pull。
+# 建议使用固定版本或 digest，例如 postgres:15.8-alpine 或 postgres@sha256:...。
+# image: "postgres:15-alpine"
 
 # 应用描述（可选）
 description: "我的微应用"

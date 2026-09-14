@@ -103,8 +103,9 @@ Every micro-app requires `micro-app.yml` in its root directory. Select one packa
 | `container_name` | Yes | `string` | Container name, **globally unique** across all micro-apps |
 | `container_port` | Yes | `int` | Container internal port (1-65535) |
 | `app_type` | Yes | `enum` | One of: `static`, `api`, `internal` |
-| `package_type` | No | `source` \| `image` | Defaults to `source`; `image` imports a prebuilt Docker archive and does not require source or Dockerfile |
+| `package_type` | No | `source` \| `image` \| `registry` | Defaults to `source`; `image` imports a prebuilt Docker archive; `registry` uses an existing registry image without source or Dockerfile |
 | `image_archive` | Image only | `string` | Archive path relative to the micro-app directory; imported by `micro_proxy build` with `docker load` |
+| `image` | Registry only | `string` | Existing image reference such as `postgres:15.8-alpine`; `micro_proxy build` pulls it only when absent locally |
 | `build_platform` | Source only | `string` | Optional Buildx target such as `linux/amd64`; use when the build host and deployment host differ in CPU architecture |
 | `description` | No | `string` | App description |
 | `nginx_extra_config` | No | `string` | Extra Nginx directives (static/api/internal with routes) |
@@ -124,6 +125,8 @@ nginx_extra_config: |
 **Note:** The `docker_volumes` field has been removed from `micro-app.yml`. Use the separate `micro-app.volumes.yml` file instead.
 
 For image packages, use `micro_proxy build --export` in the source-package build environment. It creates a tagged image (for example `my_app:sha-0123456789ab`) and always exports it as `image.tar` next to the Dockerfile. When building on Apple Silicon for an AMD64 Linux deployment host, set `build_platform: linux/amd64` in the source package: micro_proxy uses `docker buildx build --platform linux/amd64 --load`, and the changed configuration produces a distinct immutable tag. On the deployment host set `package_type: image` and `image_archive: image.tar`, then upload that archive without source or Dockerfile. `micro_proxy build` imports the archive without changing central deployment state; use `deploy --image` to select it. Overwriting the transferred `image.tar` does not remove old imported tags, so `rollback` remains available until deployment history is cleaned. Add `image.tar` to the build host's `.dockerignore`.
+
+For official infrastructure images that have no application source, such as Postgres or Redis, use `package_type: registry` plus `image: postgres:15.8-alpine`. No Dockerfile, source checkout, or exported archive is required. `micro_proxy build` only runs `docker pull` if that exact reference is absent locally; deploy it with the same reference. Pin an exact version or digest in production instead of a mutable tag.
 
 ### 4. micro-app.volumes.yml Schema
 

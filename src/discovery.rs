@@ -567,6 +567,21 @@ app_type: "static"
     }
 
     #[test]
+    fn test_micro_app_validate_registry_package_without_dockerfile_or_archive() {
+        let temp_dir = TempDir::new().unwrap();
+        let app_path = temp_dir.path().join("postgres");
+        std::fs::create_dir(&app_path).unwrap();
+        std::fs::write(
+            app_path.join("micro-app.yml"),
+            "routes: []\ncontainer_name: postgres\ncontainer_port: 5432\napp_type: internal\npackage_type: registry\nimage: postgres:15.8-alpine\n",
+        )
+        .unwrap();
+
+        let micro_app = MicroApp::from_directory("postgres".to_string(), app_path).unwrap();
+        assert!(micro_app.validate().is_ok());
+    }
+
+    #[test]
     fn test_micro_app_validate_image_package_requires_archive_file() {
         let temp_dir = TempDir::new().unwrap();
         let app_path = temp_dir.path().join("test-app");

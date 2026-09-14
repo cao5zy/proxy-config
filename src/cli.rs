@@ -422,7 +422,7 @@ fn execute_build(
                 builder::save_image_archive(&image, &archive)?;
                 println!("已导出镜像归档: {}（镜像：{}）", archive.display(), image);
             }
-        } else {
+        } else if micro_app.config.package_type == "image" {
             if export {
                 return Err(Error::Config(format!(
                     "应用 '{}' 使用 package_type: image，不能使用 --export",
@@ -437,6 +437,28 @@ fn execute_build(
             for image in images {
                 println!(
                     "已导入镜像: {}（应用：{}，容器：{}）",
+                    image, app.name, app.container_name
+                );
+            }
+        } else {
+            if export {
+                return Err(Error::Config(format!(
+                    "应用 '{}' 使用 package_type: registry，不能使用 --export",
+                    app.name
+                )));
+            }
+            let image = micro_app.config.registry_image.as_deref().ok_or_else(|| {
+                Error::Config(format!("registry 应用 '{}' 缺少 image 配置", app.name))
+            })?;
+            if builder::image_exists(image)? {
+                println!(
+                    "已存在仓库镜像: {}（应用：{}，容器：{}）",
+                    image, app.name, app.container_name
+                );
+            } else {
+                builder::pull_image(image)?;
+                println!(
+                    "已拉取仓库镜像: {}（应用：{}，容器：{}）",
                     image, app.name, app.container_name
                 );
             }

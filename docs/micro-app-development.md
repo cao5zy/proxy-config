@@ -81,8 +81,9 @@ nginx_extra_config: |          # 额外的 nginx 配置（可选）
 | `container_name` | ✅ | 容器名称，**全局唯一**，不能重复 |
 | `container_port` | ✅ | 容器内部端口 |
 | `app_type` | ✅ | 应用类型：static, api, internal |
-| `package_type` | ❌ | 包类型：`source`（默认）或 `image` |
+| `package_type` | ❌ | 包类型：`source`（默认）、`image` 或 `registry` |
 | `image_archive` | 镜像包必需 | 归档路径（相对于应用目录），推荐固定为 `image.tar` |
+| `image` | 仓库镜像包必需 | 已有镜像引用，例如 `postgres:15.8-alpine`；本地没有时由 `build` 拉取 |
 | `build_platform` | 源码包可选 | Buildx 目标平台，如 `linux/amd64`；构建机与部署机 CPU 架构不同时使用 |
 | `description` | ❌ | 应用描述 |
 | `nginx_extra_config` | ❌ | 额外的 nginx 配置（仅 static 和 api 有效） |

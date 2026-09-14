@@ -118,6 +118,24 @@ pub fn save_image_archive<P: AsRef<Path>>(image: &str, archive_path: P) -> Resul
     Ok(())
 }
 
+/// 从镜像仓库拉取指定镜像引用。
+pub fn pull_image(image: &str) -> Result<()> {
+    log::info!("从镜像仓库拉取镜像: {}", image);
+    let output = Command::new("docker")
+        .arg("pull")
+        .arg(image)
+        .output()
+        .map_err(|e| Error::Build(format!("执行 docker pull 失败: {}", e)))?;
+    if !output.status.success() {
+        return Err(Error::Build(format!(
+            "拉取镜像 {} 失败: {}",
+            image,
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    Ok(())
+}
+
 /// 构建Docker镜像
 ///
 /// # 参数

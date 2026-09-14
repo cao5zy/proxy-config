@@ -20,13 +20,18 @@ pub fn default_package_type() -> String {
 /// 微应用配置文件结构（micro-app.yml）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MicroAppConfig {
-    /// 应用包类型：`source` 通过 Dockerfile 构建，`image` 导入已有镜像归档。
+    /// 应用包类型：`source` 通过 Dockerfile 构建，`image` 导入已有镜像归档，
+    /// `registry` 直接引用已有仓库镜像。
     #[serde(default = "default_package_type")]
     pub package_type: String,
 
     /// 镜像归档路径。仅当 `package_type: image` 时必需；相对路径基于应用目录。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_archive: Option<String>,
+
+    /// 仓库镜像引用。仅当 `package_type: registry` 时必需，例如 `postgres:15-alpine`。
+    #[serde(rename = "image", skip_serializing_if = "Option::is_none")]
+    pub registry_image: Option<String>,
 
     /// 源码包的目标镜像平台，例如 `linux/amd64`。配置后使用 Docker Buildx 构建。
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -171,10 +176,10 @@ impl MicroAppConfig {
 
         validate_healthcheck_path(&self.healthcheck_path)?;
 
-        let valid_package_types = ["source", "image"];
+        let valid_package_types = ["source", "image", "registry"];
         if !valid_package_types.contains(&self.package_type.as_str()) {
             return Err(Error::Config(format!(
-                "微应用 '{}' 的 package_type '{}' 无效，必须是 source 或 image",
+                "微应用 '{}' 的 package_type '{}' 无效，必须是 source、image 或 registry",
                 app_name, self.package_type
             )));
         }
@@ -192,6 +197,29 @@ impl MicroAppConfig {
         if self.package_type == "image" && self.build_platform.is_some() {
             return Err(Error::Config(format!(
                 "微应用 '{}' 使用 image 包时不能配置 build_platform",
+                app_name
+            )));
+        }
+        if self.package_type == "registry"
+            && self
+                .registry_image
+                .as_deref()
+                .is_none_or(str::is_empty)
+        {
+            return Err(Error::Config(format!(
+                "微应用 '{}' 使用 registry 包时必须配置 image",
+                app_name
+            )));
+        }
+        if self.package_type != "registry" && self.registry_image.is_some() {
+            return Err(Error::Config(format!(
+                "微应用 '{}' 仅 registry 包可以配置 image",
+                app_name
+            )));
+        }
+        if self.package_type == "registry" && self.build_platform.is_some() {
+            return Err(Error::Config(format!(
+                "微应用 '{}' 使用 registry 包时不能配置 build_platform",
                 app_name
             )));
         }
@@ -321,6 +349,35 @@ app_type: "api"
     }
 
     #[test]
+    fn test_micro_app_config_reads_registry_package_image() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("micro-app.yml");
+        std::fs::write(
+            &config_path,
+            "routes: []\ncontainer_name: postgres\ncontainer_port: 5432\napp_type: internal\npackage_type: registry\nimage: postgres:15-alpine\n",
+        )
+        .unwrap();
+
+        let config = MicroAppConfig::from_file(&config_path).unwrap();
+        assert_eq!(config.registry_image.as_deref(), Some("postgres:15-alpine"));
+        assert!(config.validate("postgres").is_ok());
+    }
+
+    #[test]
+    fn test_micro_app_config_rejects_registry_package_without_image() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("micro-app.yml");
+        std::fs::write(
+            &config_path,
+            "routes: []\ncontainer_name: postgres\ncontainer_port: 5432\napp_type: internal\npackage_type: registry\n",
+        )
+        .unwrap();
+
+        let config = MicroAppConfig::from_file(&config_path).unwrap();
+        assert!(config.validate("postgres").is_err());
+    }
+
+    #[test]
     fn test_validate_build_platform_rejects_non_linux_or_incomplete_values() {
         assert!(validate_build_platform("amd64").is_err());
         assert!(validate_build_platform("darwin/arm64").is_err());
@@ -332,6 +389,7 @@ app_type: "api"
         let config = MicroAppConfig {
             package_type: "image".to_string(),
             image_archive: None,
+            registry_image: None,
             build_platform: None,
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
@@ -353,6 +411,7 @@ app_type: "api"
         let config = MicroAppConfig {
             package_type: "source".to_string(),
             image_archive: None,
+            registry_image: None,
             build_platform: None,
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
@@ -378,6 +437,7 @@ app_type: "api"
         let config = MicroAppConfig {
             package_type: "source".to_string(),
             image_archive: None,
+            registry_image: None,
             build_platform: None,
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
@@ -401,6 +461,7 @@ app_type: "api"
         let config = MicroAppConfig {
             package_type: "source".to_string(),
             image_archive: None,
+            registry_image: None,
             build_platform: None,
             routes: vec!["/".to_string()],
             container_name: "".to_string(),
@@ -427,6 +488,7 @@ app_type: "api"
         let config = MicroAppConfig {
             package_type: "source".to_string(),
             image_archive: None,
+            registry_image: None,
             build_platform: None,
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
@@ -453,6 +515,7 @@ app_type: "api"
         let config = MicroAppConfig {
             package_type: "source".to_string(),
             image_archive: None,
+            registry_image: None,
             build_platform: None,
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
@@ -479,6 +542,7 @@ app_type: "api"
         let config = MicroAppConfig {
             package_type: "source".to_string(),
             image_archive: None,
+            registry_image: None,
             build_platform: None,
             routes: vec![],
             container_name: "test-container".to_string(),
@@ -505,6 +569,7 @@ app_type: "api"
         let config = MicroAppConfig {
             package_type: "source".to_string(),
             image_archive: None,
+            registry_image: None,
             build_platform: None,
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
@@ -568,6 +633,7 @@ app_type: "api"
         let config = MicroAppConfig {
             package_type: "source".to_string(),
             image_archive: None,
+            registry_image: None,
             build_platform: None,
             routes: vec!["/gg123_test/".to_string()],
             container_name: "test-container".to_string(),
