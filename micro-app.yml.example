@@ -26,6 +26,16 @@ healthcheck_path: "/"
 # - internal: 内部服务（如Redis、MySQL等，不需要nginx反向代理）
 app_type: "static"
 
+# 应用包类型（可选，默认 "source"）
+# - source: 从本目录 Dockerfile 和源码构建镜像
+# - image: 导入已在构建机打好标签的 Docker 镜像归档；此时不需要 Dockerfile 或源码
+package_type: "source"
+
+# 镜像归档（仅 package_type: image 时必需；相对路径基于本目录）
+# 使用 `docker save my_app:sha-0123456789ab -o image.tar` 在构建机生成。
+# 部署机运行 `micro_proxy build my_app` 时会执行 docker load，且保留归档内的标签。
+# image_archive: "image.tar"
+
 # 应用描述（可选）
 description: "我的微应用"
 

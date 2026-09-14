@@ -6,6 +6,49 @@ use crate::{Error, Result};
 use std::path::Path;
 use std::process::Command;
 
+/// 从 `docker load` 的标准输出提取带标签的镜像引用。
+fn loaded_image_references(output: &str) -> Vec<String> {
+    output
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("Loaded image: "))
+        .map(ToString::to_string)
+        .collect()
+}
+
+/// 将 `docker save` 生成的镜像归档导入本机 Docker 镜像库，返回归档内保留的标签。
+pub fn load_image_archive<P: AsRef<Path>>(archive_path: P) -> Result<Vec<String>> {
+    let archive_path = archive_path.as_ref();
+    if !archive_path.is_file() {
+        return Err(Error::Build(format!(
+            "镜像归档不存在或不是文件: {:?}",
+            archive_path
+        )));
+    }
+
+    let output = Command::new("docker")
+        .arg("load")
+        .arg("-i")
+        .arg(archive_path)
+        .output()
+        .map_err(|e| Error::Build(format!("执行 docker load 失败: {}", e)))?;
+    if !output.status.success() {
+        return Err(Error::Build(format!(
+            "导入镜像归档 {:?} 失败: {}",
+            archive_path,
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+
+    let references = loaded_image_references(&String::from_utf8_lossy(&output.stdout));
+    if references.is_empty() {
+        return Err(Error::Build(format!(
+            "镜像归档 {:?} 未包含带标签的镜像引用",
+            archive_path
+        )));
+    }
+    Ok(references)
+}
+
 /// 构建Docker镜像
 ///
 /// # 参数
@@ -183,6 +226,15 @@ pub fn image_exists(image_name: &str) -> Result<bool> {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn test_loaded_image_references_extracts_tagged_images_only() {
+        let output = "Loaded image: my-api:sha-a1b2c3\nLoaded image ID: sha256:abc\nLoaded image: helper:1.0\n";
+        assert_eq!(
+            loaded_image_references(output),
+            vec!["my-api:sha-a1b2c3", "helper:1.0"]
+        );
+    }
 
     #[test]
     fn test_build_image_no_dockerfile() {

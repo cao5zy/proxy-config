@@ -12,9 +12,22 @@ pub fn default_healthcheck_path() -> String {
     "/".to_string()
 }
 
+/// 未显式配置时，微应用以源码包方式构建。
+pub fn default_package_type() -> String {
+    "source".to_string()
+}
+
 /// 微应用配置文件结构（micro-app.yml）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MicroAppConfig {
+    /// 应用包类型：`source` 通过 Dockerfile 构建，`image` 导入已有镜像归档。
+    #[serde(default = "default_package_type")]
+    pub package_type: String,
+
+    /// 镜像归档路径。仅当 `package_type: image` 时必需；相对路径基于应用目录。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_archive: Option<String>,
+
     /// 访问路径（static/api类型必需）
     #[serde(default)]
     pub routes: Vec<String>,
@@ -131,6 +144,25 @@ impl MicroAppConfig {
 
         validate_healthcheck_path(&self.healthcheck_path)?;
 
+        let valid_package_types = ["source", "image"];
+        if !valid_package_types.contains(&self.package_type.as_str()) {
+            return Err(Error::Config(format!(
+                "微应用 '{}' 的 package_type '{}' 无效，必须是 source 或 image",
+                app_name, self.package_type
+            )));
+        }
+        if self.package_type == "image"
+            && self
+                .image_archive
+                .as_deref()
+                .is_none_or(str::is_empty)
+        {
+            return Err(Error::Config(format!(
+                "微应用 '{}' 使用 image 包时必须配置 image_archive",
+                app_name
+            )));
+        }
+
         // 验证 app_type
         let valid_types = ["static", "api", "internal"];
         if !valid_types.contains(&self.app_type.as_str()) {
@@ -222,8 +254,45 @@ app_type: "api"
     }
 
     #[test]
+    fn test_micro_app_config_defaults_to_source_package() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("micro-app.yml");
+        std::fs::write(
+            &config_path,
+            "routes: [\"/\"]\ncontainer_name: test\ncontainer_port: 80\napp_type: static\n",
+        )
+        .unwrap();
+
+        let config = MicroAppConfig::from_file(&config_path).unwrap();
+        assert_eq!(config.package_type, "source");
+        assert_eq!(config.image_archive, None);
+    }
+
+    #[test]
+    fn test_micro_app_config_rejects_image_package_without_archive() {
+        let config = MicroAppConfig {
+            package_type: "image".to_string(),
+            image_archive: None,
+            routes: vec!["/".to_string()],
+            container_name: "test-container".to_string(),
+            container_port: 80,
+            healthcheck_path: "/".to_string(),
+            app_type: "static".to_string(),
+            description: None,
+            nginx_extra_config: None,
+            proxy_connect_timeout: None,
+            proxy_read_timeout: None,
+            proxy_send_timeout: None,
+        };
+
+        assert!(config.validate("test-app").is_err());
+    }
+
+    #[test]
     fn test_micro_app_config_validate_success() {
         let config = MicroAppConfig {
+            package_type: "source".to_string(),
+            image_archive: None,
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
             container_port: 80,
@@ -246,6 +315,8 @@ app_type: "api"
     #[test]
     fn test_micro_app_config_validate_rejects_healthcheck_path_without_leading_slash() {
         let config = MicroAppConfig {
+            package_type: "source".to_string(),
+            image_archive: None,
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
             container_port: 80,
@@ -266,6 +337,8 @@ app_type: "api"
     #[test]
     fn test_micro_app_config_validate_empty_container_name() {
         let config = MicroAppConfig {
+            package_type: "source".to_string(),
+            image_archive: None,
             routes: vec!["/".to_string()],
             container_name: "".to_string(),
             container_port: 80,
@@ -289,6 +362,8 @@ app_type: "api"
     #[test]
     fn test_micro_app_config_validate_zero_port() {
         let config = MicroAppConfig {
+            package_type: "source".to_string(),
+            image_archive: None,
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
             container_port: 0,
@@ -312,6 +387,8 @@ app_type: "api"
     #[test]
     fn test_micro_app_config_validate_invalid_app_type() {
         let config = MicroAppConfig {
+            package_type: "source".to_string(),
+            image_archive: None,
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
             container_port: 80,
@@ -335,6 +412,8 @@ app_type: "api"
     #[test]
     fn test_micro_app_config_validate_empty_routes_for_static() {
         let config = MicroAppConfig {
+            package_type: "source".to_string(),
+            image_archive: None,
             routes: vec![],
             container_name: "test-container".to_string(),
             container_port: 80,
@@ -358,6 +437,8 @@ app_type: "api"
     #[test]
     fn test_micro_app_config_validate_internal_with_routes() {
         let config = MicroAppConfig {
+            package_type: "source".to_string(),
+            image_archive: None,
             routes: vec!["/".to_string()],
             container_name: "test-container".to_string(),
             container_port: 6379,
@@ -418,6 +499,8 @@ app_type: "api"
     #[test]
     fn test_validate_route_in_micro_app_config() {
         let config = MicroAppConfig {
+            package_type: "source".to_string(),
+            image_archive: None,
             routes: vec!["/gg123_test/".to_string()],
             container_name: "test-container".to_string(),
             container_port: 80,

@@ -250,6 +250,10 @@ fn get_micro_app_info(
             // 对于 Internal 类型，从 micro_app_config 加载配置
             let micro_app_config =
                 crate::micro_app_config::MicroAppConfig::from_file(path_buf.join("micro-app.yml"))?;
+            let image_archive = micro_app_config
+                .image_archive
+                .as_ref()
+                .map(|archive| path_buf.join(archive));
 
             // 加载卷配置
             log::debug!("尝试加载 Internal 应用 '{}' 的卷配置", app_config.name);
@@ -264,6 +268,7 @@ fn get_micro_app_info(
                 config: micro_app_config,
                 volumes_config,
                 dockerfile,
+                image_archive,
                 env_file,
                 setup_script,
                 clean_script,
@@ -378,25 +383,38 @@ fn execute_build(config: &ProxyConfig, requested_apps: &[String], no_cache: bool
             continue;
         }
         let micro_app = get_micro_app_info(app, &micro_apps)?;
-        let source_hash = calculate_directory_hash(&micro_app.path)?;
-        let image = image_reference(&app.name, &source_hash);
-        if !builder::image_exists(&image)? {
-            if let Some(script_path) = &micro_app.setup_script {
-                script::execute_setup_script(script_path, &micro_app.path)?;
+        if micro_app.config.package_type == "source" {
+            let source_hash = calculate_directory_hash(&micro_app.path)?;
+            let image = image_reference(&app.name, &source_hash);
+            if !builder::image_exists(&image)? {
+                if let Some(script_path) = &micro_app.setup_script {
+                    script::execute_setup_script(script_path, &micro_app.path)?;
+                }
+                builder::build_image(
+                    &image,
+                    &micro_app.dockerfile,
+                    &micro_app.path,
+                    Some(&micro_app.env_file),
+                    no_cache,
+                )?;
             }
-            builder::build_image(
-                &image,
-                &micro_app.dockerfile,
-                &micro_app.path,
-                Some(&micro_app.env_file),
-                no_cache,
-            )?;
+            state_manager.update_state(&app.name, source_hash, true);
+            println!(
+                "已构建镜像: {}（应用：{}，容器：{}）",
+                image, app.name, app.container_name
+            );
+        } else {
+            let archive = micro_app.image_archive.as_ref().ok_or_else(|| {
+                Error::Build(format!("镜像应用 '{}' 缺少镜像归档", app.name))
+            })?;
+            let images = builder::load_image_archive(archive)?;
+            for image in images {
+                println!(
+                    "已导入镜像: {}（应用：{}，容器：{}）",
+                    image, app.name, app.container_name
+                );
+            }
         }
-        state_manager.update_state(&app.name, source_hash, true);
-        println!(
-            "已构建镜像: {}（应用：{}，容器：{}）",
-            image, app.name, app.container_name
-        );
     }
     state_manager.save()?;
     Ok(())

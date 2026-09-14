@@ -32,8 +32,8 @@
 
 ## 功能特性
 
-- 🔍 **自动发现微应用** - 支持多个扫描目录，自动发现包含 `micro-app.yml` 和 `Dockerfile` 的微应用
-- 🐳 **Docker 镜像构建** - 自动构建微应用的 Docker 镜像，支持环境变量传递
+- 🔍 **自动发现微应用** - 支持源码包与镜像包：均需 `micro-app.yml`，源码包使用 Dockerfile，镜像包使用镜像归档
+- 🐳 **Docker 镜像构建与导入** - 源码包自动构建；镜像包导入构建机预先打好的 Docker 镜像
 - 🔄 **容器生命周期管理** - 启动、停止、清理容器
 - 🌐 **Nginx 反向代理** - 自动生成 nginx 配置，作为统一入口
 - 📦 **Docker Compose 集成** - 生成 docker-compose.yml 文件
@@ -129,7 +129,7 @@ micro_proxy start
 micro_proxy build [APP_NAME...] [--no-cache]
 ```
 
-只构建镜像，不改变容器、Nginx、流量或部署状态。镜像使用不可变的 `app:sha-<哈希>` 标签。`APP_NAME` 仅填写应用名（`app.name`，通常由应用目录推导），不接受 `container_name` 或镜像引用。
+不改变容器、Nginx、流量或部署状态。`package_type: source` 时使用 Dockerfile 构建并生成不可变的 `app:sha-<哈希>` 标签；`package_type: image` 时执行 `docker load` 导入 `image_archive`，并保留构建机写入归档的标签。`APP_NAME` 仅填写应用名（`app.name`，通常由应用目录推导），不接受 `container_name` 或镜像引用。
 
 ```bash
 micro_proxy build api
@@ -249,6 +249,13 @@ healthcheck_path: "/healthz"
 # 应用类型（必需）：static, api, internal
 app_type: "static"
 
+# 应用包类型（可选，默认 source）
+# source：通过 Dockerfile 构建；image：导入镜像归档，不需要源码或 Dockerfile
+package_type: "source"
+
+# 仅 image 模式必需。相对路径基于应用目录。
+# image_archive: "image.tar"
+
 # 应用描述（可选）
 description: "应用描述"
 
@@ -265,6 +272,23 @@ proxy_send_timeout: 60
 **详细配置说明**请参阅 **[微应用开发专题](docs/micro-app-development.md)**。
 
 `healthcheck_path` 仅用于 `static` 和 `api` 应用的部署健康检查。路径必须以 `/` 开头；未配置时使用 `/`，因此既有 `micro-app.yml` 无需修改。健康检查在容器内部请求 IPv4 回环地址 `127.0.0.1`，镜像需要提供 `wget`，且该路径应返回 2xx 或 3xx 响应。
+
+#### 镜像包发布
+
+镜像包仅保留运行所需配置、可选 `.env`、可选 `micro-app.volumes.yml` 与镜像归档；不需要上传源码。构建机必须先通过源码模式生成不可变标签，再导出该标签：
+
+```bash
+# 构建机
+micro_proxy build my_app
+docker save my_app:sha-0123456789ab -o image.tar
+
+# 部署机的 my_app/micro-app.yml 配置 package_type: image 与 image_archive: image.tar
+micro_proxy build my_app    # 仅 docker load，不重新构建，也不改变部署状态
+micro_proxy deploy my_app --image my_app:sha-0123456789ab
+micro_proxy start
+```
+
+镜像归档必须保留不可变标签；不要以 `latest` 覆盖不同版本。导入新版本不会删除旧镜像，中央部署状态仍会保护活动镜像和可回滚镜像，因此 `micro_proxy rollback my_app` 不需要源码或旧归档。
 
 ### 数据持久化配置文件 (micro-app.volumes.yml)
 
@@ -358,7 +382,7 @@ micro_proxy 使用 Docker 端口映射机制，将宿主机端口映射到容器
 `scan_dirs` 配置项用于指定扫描微应用的目录列表：
 
 - 只扫描一级目录，不会递归扫描
-- 只有同时包含 `micro-app.yml` 和 `Dockerfile` 的目录才会被识别为微应用
+- `package_type: source`（默认）需要 `micro-app.yml` 与 `Dockerfile`；`package_type: image` 需要 `micro-app.yml` 与已配置的镜像归档
 - 目录名称将作为微应用的默认名称（`app.name`）
 - 所有微应用的 `container_name` 必须全局唯一
 
@@ -414,7 +438,7 @@ micro_proxy 支持三种应用类型：
 micro-apps/
 └── my-app/                    # 微应用目录
     ├── micro-app.yml          # 微应用配置文件（必需）
-    ├── Dockerfile             # Docker 构建文件（必需）
+    ├── Dockerfile             # Docker 构建文件（源码包必需）
     ├── nginx.conf             # Nginx 配置（SPA 应用必需）
     ├── micro-app.volumes.yml  # 数据持久化与权限配置（可选）
     ├── setup.sh               # 构建前脚本（可选）
@@ -422,6 +446,8 @@ micro-apps/
     ├── .env                   # 环境变量（可选）
     └── src/                   # 源代码目录
 ```
+
+镜像包目录可改为只包含 `micro-app.yml`、`image.tar`、可选 `.env` 和可选 `micro-app.volumes.yml`；不需要 Dockerfile、`src/`、`setup.sh` 或 `clean.sh`。
 
 ## 故障排查
 

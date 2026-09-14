@@ -1,7 +1,7 @@
 
 //! 应用发现模块
 //!
-//! 负责扫描微应用目录，发现包含 micro-app.yml 和 Dockerfile 的微应用
+//! 负责扫描微应用目录，发现源码包或镜像包微应用。
 
 use crate::micro_app_config::MicroAppConfig;
 use crate::volumes_config::VolumesConfig;
@@ -26,6 +26,9 @@ pub struct MicroApp {
 
     /// Dockerfile 路径
     pub dockerfile: PathBuf,
+
+    /// 待导入的 Docker 镜像归档。仅镜像包使用。
+    pub image_archive: Option<PathBuf>,
 
     /// 环境变量文件路径
     pub env_file: PathBuf,
@@ -56,6 +59,10 @@ impl MicroApp {
 
         // 加载 micro-app.yml
         let config = MicroAppConfig::from_file(&micro_app_yml)?;
+        let image_archive = config
+            .image_archive
+            .as_ref()
+            .map(|archive| path.join(archive));
 
         // 验证配置
         config.validate(&name)?;
@@ -76,6 +83,7 @@ impl MicroApp {
             config,
             volumes_config,
             dockerfile,
+            image_archive,
             env_file,
             setup_script: if setup_script.exists() {
                 Some(setup_script)
@@ -94,11 +102,22 @@ impl MicroApp {
     pub fn validate(&self) -> Result<()> {
         log::debug!("验证微应用：{}", self.name);
 
-        // 检查 Dockerfile 是否存在
-        if !self.dockerfile.exists() {
+        if self.config.package_type == "source" && !self.dockerfile.exists() {
             log::error!("微应用 '{}' 缺少 Dockerfile", self.name);
             return Err(Error::Discovery(format!(
                 "微应用 '{}' 缺少 Dockerfile",
+                self.name
+            )));
+        }
+
+        if self.config.package_type == "image"
+            && !self
+                .image_archive
+                .as_ref()
+                .is_some_and(|archive| archive.is_file())
+        {
+            return Err(Error::Discovery(format!(
+                "微应用 '{}' 的镜像归档不存在或不是文件",
                 self.name
             )));
         }
@@ -529,6 +548,37 @@ app_type: "static"
         let result = micro_app.validate();
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_micro_app_validate_image_package_without_dockerfile() {
+        let temp_dir = TempDir::new().unwrap();
+        let app_path = temp_dir.path().join("test-app");
+        std::fs::create_dir(&app_path).unwrap();
+        std::fs::write(app_path.join("image.tar"), "archive").unwrap();
+        std::fs::write(
+            app_path.join("micro-app.yml"),
+            "routes: [\"/\"]\ncontainer_name: test-container\ncontainer_port: 80\napp_type: static\npackage_type: image\nimage_archive: image.tar\n",
+        )
+        .unwrap();
+
+        let micro_app = MicroApp::from_directory("test-app".to_string(), app_path).unwrap();
+        assert!(micro_app.validate().is_ok());
+    }
+
+    #[test]
+    fn test_micro_app_validate_image_package_requires_archive_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let app_path = temp_dir.path().join("test-app");
+        std::fs::create_dir(&app_path).unwrap();
+        std::fs::write(
+            app_path.join("micro-app.yml"),
+            "routes: [\"/\"]\ncontainer_name: test-container\ncontainer_port: 80\napp_type: static\npackage_type: image\nimage_archive: image.tar\n",
+        )
+        .unwrap();
+
+        let micro_app = MicroApp::from_directory("test-app".to_string(), app_path).unwrap();
+        assert!(micro_app.validate().is_err());
     }
 
     #[test]
