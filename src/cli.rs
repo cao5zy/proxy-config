@@ -545,7 +545,24 @@ fn execute_deploy(config: &ProxyConfig, app_name: &str, image: &str, force: bool
         );
     }
     let nginx_result = if container::is_container_running("proxy-nginx")? {
-        container::reload_nginx()
+        if container::nginx_has_host_port(config.nginx_host_port)? {
+            container::reload_nginx()
+        } else {
+            log::warn!(
+                "运行中的 proxy-nginx 未发布 HTTP 主机端口 {}；将由 Compose 重建以恢复端口映射",
+                config.nginx_host_port
+            );
+            let args = vec![
+                "-f",
+                &config.compose_config_path,
+                "up",
+                "-d",
+                "--no-deps",
+                "--force-recreate",
+                "nginx",
+            ];
+            run_docker_compose(&args)
+        }
     } else {
         let args = vec!["-f", &config.compose_config_path, "up", "-d", "nginx"];
         run_docker_compose(&args)

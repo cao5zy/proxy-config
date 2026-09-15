@@ -259,6 +259,39 @@ pub fn is_container_healthy(container_name: &str) -> Result<bool> {
         || String::from_utf8_lossy(&output.stdout).trim() == "running")
 }
 
+/// 判断 Nginx 是否将其 HTTP 端口发布到指定的主机端口。
+///
+/// Nginx 运行时只能 reload 配置，不能补加 Docker 端口映射；调用方可据此决定
+/// 是否需要由 Compose 重建该容器。
+pub fn nginx_has_host_port(host_port: u16) -> Result<bool> {
+    let output = Command::new("docker")
+        .args([
+            "inspect",
+            "--format",
+            "{{with index .NetworkSettings.Ports \"80/tcp\"}}{{range .}}{{.HostPort}}{{\"\\n\"}}{{end}}{{end}}",
+            "proxy-nginx",
+        ])
+        .output()
+        .map_err(|e| Error::Container(format!("检查 Nginx 端口映射失败: {}", e)))?;
+    if !output.status.success() {
+        return Err(Error::Container(
+            "检查 Nginx 端口映射返回失败状态".to_string(),
+        ));
+    }
+    Ok(inspect_output_has_host_port(
+        &String::from_utf8_lossy(&output.stdout),
+        host_port,
+    ))
+}
+
+/// 从 `docker inspect` 模板输出中判断是否存在目标主机端口。
+fn inspect_output_has_host_port(output: &str, host_port: u16) -> bool {
+    output
+        .lines()
+        .filter_map(|line| line.trim().parse::<u16>().ok())
+        .any(|port| port == host_port)
+}
+
 /// 平滑重载正在运行的 Nginx 配置。
 pub fn reload_nginx() -> Result<()> {
     let status = Command::new("docker")
@@ -283,5 +316,13 @@ mod tests {
         let result = get_container_status("nonexistent-container-test");
         // 在CI环境中可能没有Docker，所以不断言结果
         let _ = result;
+    }
+
+    #[test]
+    fn test_inspect_output_has_expected_host_port() {
+        assert!(inspect_output_has_host_port("8080\n", 8080));
+        assert!(inspect_output_has_host_port("80\n8080\n", 8080));
+        assert!(!inspect_output_has_host_port("80\n", 8080));
+        assert!(!inspect_output_has_host_port("", 8080));
     }
 }
