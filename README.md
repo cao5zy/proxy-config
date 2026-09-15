@@ -249,6 +249,10 @@ container_port: 80
 # API 可配置为实际的健康接口，例如 "/healthz"
 healthcheck_path: "/healthz"
 
+# 非根路由转发前是否剥离路由前缀（可选）
+# API 默认 false；Static 和 Internal 默认 true
+# strip_route_prefix: true
+
 # 应用类型（必需）：static, api, internal
 app_type: "static"
 

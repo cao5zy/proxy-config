@@ -154,6 +154,7 @@ impl MicroApp {
             container_name: self.config.container_name.clone(),
             container_port: self.config.container_port,
             healthcheck_path: self.config.healthcheck_path.clone(),
+            strip_route_prefix: self.config.strip_route_prefix,
             app_type,
             description: self.config.description.clone(),
             nginx_extra_config: self.config.nginx_extra_config.clone(),

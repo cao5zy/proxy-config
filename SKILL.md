@@ -69,7 +69,7 @@ micro_proxy 支持三种微应用类型，这是所有配置的基础：
 - User needs MinIO, Adminer, or other internal HTTP service → **Internal** (with routes)
 - Same project has both frontend and backend → Two separate micro-apps
 
-> **Internal with routes:** Some internal services (like MinIO, Adminer, pgAdmin) serve HTTP but are not user-facing API backends. Set `app_type: "internal"` with `routes: ["/path"]` to expose them through nginx. The route prefix is **automatically stripped** (like Static type), because third-party services cannot handle path prefixes.
+> **Internal with routes:** Some internal services (like MinIO, Adminer, pgAdmin) serve HTTP but are not user-facing API backends. Set `app_type: "internal"` with `routes: ["/path"]` to expose them through nginx. To strip the route prefix for a service that cannot handle it, set `strip_route_prefix: true`.
 
 ### 2. File Structure
 
@@ -109,6 +109,7 @@ Every micro-app requires `micro-app.yml` in its root directory. Select one packa
 | `build_platform` | Source only | `string` | Optional Buildx target such as `linux/amd64`; use when the build host and deployment host differ in CPU architecture |
 | `description` | No | `string` | App description |
 | `nginx_extra_config` | No | `string` | Extra Nginx directives (static/api/internal with routes) |
+| `strip_route_prefix` | No | `bool` | Strip a non-root route prefix before proxying. Defaults to `false` for API and `true` for Static/Internal. |
 
 **Example:**
 
@@ -431,7 +432,7 @@ volumes:
 ```
 
 **配置说明：**
-- `routes` 非空时，内部应用通过 nginx 代理，并**自动剥离路由前缀**（例：访问 `/minio/bucket/file`，后端收到 `/bucket/file`）
+- `routes` 非空时，内部应用通过 nginx 代理；默认保留路由前缀。如服务无法处理该前缀，设置 `strip_route_prefix: true`（例：访问 `/minio/bucket/file`，后端收到 `/bucket/file`）
 - 支持 `nginx_extra_config`、`proxy_connect_timeout` 等配置
 - nginx `depends_on` 会自动包含该容器
 - 网络信息展示中会显示可访问 URL

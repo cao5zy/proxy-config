@@ -54,6 +54,11 @@ pub struct MicroAppConfig {
     /// 应用类型（必需）
     pub app_type: String, // 使用String，后续转换为AppType
 
+    /// 非根路由是否在转发前剥离路由前缀。
+    /// 未配置时由应用类型决定：API 为 false，Static 和 Internal 为 true。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strip_route_prefix: Option<bool>,
+
     /// 应用描述（可选）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -282,6 +287,7 @@ routes: ["/", "/api"]
 container_name: "test-container"
 container_port: 8080
 app_type: "api"
+strip_route_prefix: false
 description: "Test API service"
 nginx_extra_config: |
   add_header 'X-Custom' 'value';
@@ -294,6 +300,7 @@ nginx_extra_config: |
         assert_eq!(config.container_name, "test-container");
         assert_eq!(config.container_port, 8080);
         assert_eq!(config.app_type, "api");
+        assert_eq!(config.strip_route_prefix, Some(false));
         assert_eq!(config.healthcheck_path, "/");
         assert_eq!(config.description, Some("Test API service".to_string()));
         assert!(config.nginx_extra_config.is_some());
@@ -395,6 +402,7 @@ app_type: "api"
             container_name: "test-container".to_string(),
             container_port: 80,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
             app_type: "static".to_string(),
             description: None,
             nginx_extra_config: None,
@@ -417,6 +425,7 @@ app_type: "api"
             container_name: "test-container".to_string(),
             container_port: 80,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
             app_type: "static".to_string(),
             description: None,
             nginx_extra_config: None,
@@ -444,6 +453,7 @@ app_type: "api"
             container_port: 80,
             app_type: "static".to_string(),
             healthcheck_path: "healthz".to_string(),
+            strip_route_prefix: None,
             description: None,
             nginx_extra_config: None,
             proxy_connect_timeout: None,
@@ -467,6 +477,7 @@ app_type: "api"
             container_name: "".to_string(),
             container_port: 80,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
             app_type: "static".to_string(),
             description: None,
             nginx_extra_config: None,
@@ -494,6 +505,7 @@ app_type: "api"
             container_name: "test-container".to_string(),
             container_port: 0,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
             app_type: "static".to_string(),
             description: None,
             nginx_extra_config: None,
@@ -521,6 +533,7 @@ app_type: "api"
             container_name: "test-container".to_string(),
             container_port: 80,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
             app_type: "invalid".to_string(),
             description: None,
             nginx_extra_config: None,
@@ -548,6 +561,7 @@ app_type: "api"
             container_name: "test-container".to_string(),
             container_port: 80,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
             app_type: "static".to_string(),
             description: None,
             nginx_extra_config: None,
@@ -575,6 +589,7 @@ app_type: "api"
             container_name: "test-container".to_string(),
             container_port: 6379,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
             app_type: "internal".to_string(),
             description: None,
             nginx_extra_config: None,
@@ -639,6 +654,7 @@ app_type: "api"
             container_name: "test-container".to_string(),
             container_port: 80,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
             app_type: "static".to_string(),
             description: None,
             nginx_extra_config: None,

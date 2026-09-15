@@ -71,6 +71,7 @@ app_type: "static"             # 应用类型：static, api, internal（必需�
 description: "应用描述"        # 可选
 nginx_extra_config: |          # 额外的 nginx 配置（可选）
   add_header 'X-Custom-Header' 'value';
+strip_route_prefix: false      # 非根路由是否在转发前剥离前缀（可选）
 ```
 
 ### 配置字段说明
@@ -87,6 +88,7 @@ nginx_extra_config: |          # 额外的 nginx 配置（可选）
 | `build_platform` | 源码包可选 | Buildx 目标平台，如 `linux/amd64`；构建机与部署机 CPU 架构不同时使用 |
 | `description` | ❌ | 应用描述 |
 | `nginx_extra_config` | ❌ | 额外的 nginx 配置（仅 static 和 api 有效） |
+| `strip_route_prefix` | ❌ | 非根路由转发前是否剥离其 `routes` 前缀；API 默认 `false`，Static 和 Internal 默认 `true`。根路由 `/` 始终不剥离。 |
 
 **注意：** `docker_volumes` 字段已从 `micro-app.yml` 中移除，现在使用独立的 `micro-app.volumes.yml` 文件进行配置。详见[卷配置文件](#卷配置文件)章节。
 
@@ -385,6 +387,7 @@ micro-apps/backend/
 ```yaml
 # API 类型微应用配置
 routes: ["/api"]                    # API 路由前缀
+strip_route_prefix: true             # 显式开启；后端收到不含 /api 的路径
 container_name: "resume-agent-backend"
 container_port: 8080                # 后端应用监听端口
 app_type: "api"

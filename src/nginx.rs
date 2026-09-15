@@ -465,6 +465,10 @@ fn generate_location_config(app: &AppConfig, route: &str) -> String {
 
     // 判断是否为根路径
     let is_root_route = route == "/";
+    let should_strip_route_prefix = !is_root_route
+        && app
+            .strip_route_prefix
+            .unwrap_or(matches!(app.app_type, AppType::Static | AppType::Internal));
 
     // 使用变量实现动态DNS解析
     // 变量名格式: {app_name}_upstream_host
@@ -473,15 +477,15 @@ fn generate_location_config(app: &AppConfig, route: &str) -> String {
     match app.app_type {
         AppType::Static => {
             // 对于静态资源服务：
-            // 1. 如果是根路径，直接转发，不修改URI
-            // 2. 如果是非根路径（如 /resume_app），需要特殊处理：
+            // 1. 根路径或关闭剥离时，直接转发，不修改 URI
+            // 2. 非根路由且启用剥离时（如 /resume_app），需要特殊处理：
             //    - 访问 /resume_app 时，重写为 /，然后转发到后端根路径
             //    - 访问 /resume_app/ 时，重写为 /，然后转发到后端根路径
             //    - 访问 /resume_app/assets/... 时，重写为 /assets/...，然后转发
             //    这样可以支持前端使用 VITE_BASE_URL=/resume_app 的配置
 
-            let (proxy_pass_url, rewrite_rule) = if is_root_route {
-                // 根路径：直接转发
+            let (proxy_pass_url, rewrite_rule) = if !should_strip_route_prefix {
+                // 根路径或关闭剥离：直接转发
                 (
                     format!("http://${{{}}}:{}", upstream_host_var, app.container_port),
                     String::new(),
@@ -523,10 +527,15 @@ fn generate_location_config(app: &AppConfig, route: &str) -> String {
             ));
         }
         AppType::Api => {
-            // 对于API服务，直接转发完整的请求URI
-            // 不添加尾部 /，确保后端收到完整的路径（如 /api/v1/status）
+            // API 服务可按 strip_route_prefix 配置决定是否剥离非根路由前缀。
+            // 不添加尾部 /，以便保留 rewrite 后的 URI。
             let proxy_pass_url =
                 format!("http://${{{}}}:{}", upstream_host_var, app.container_port);
+            let rewrite_rule = if should_strip_route_prefix {
+                format!("            rewrite ^{}(/.*)?$ $1 break;\n", route)
+            } else {
+                String::new()
+            };
 
             let connect_timeout = app.proxy_connect_timeout.unwrap_or(60);
             let send_timeout = app.proxy_send_timeout.unwrap_or(60);
@@ -535,7 +544,7 @@ fn generate_location_config(app: &AppConfig, route: &str) -> String {
             location.push_str(&format!(
                 r#"        # API服务: {}
         location {} {{
-            proxy_pass {};
+{}            proxy_pass {};
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -550,7 +559,13 @@ fn generate_location_config(app: &AppConfig, route: &str) -> String {
             expires off;
             add_header Cache-Control "no-cache, no-store, must-revalidate";
 "#,
-                app.name, route, proxy_pass_url, connect_timeout, send_timeout, read_timeout
+                app.name,
+                route,
+                rewrite_rule,
+                proxy_pass_url,
+                connect_timeout,
+                send_timeout,
+                read_timeout
             ));
 
             // 添加额外的nginx配置
@@ -563,9 +578,9 @@ fn generate_location_config(app: &AppConfig, route: &str) -> String {
             location.push_str("        }\n\n");
         }
         AppType::Internal => {
-            // Internal 类型（第三方内部服务）无法处理路由前缀
-            // - 根路径 `/`: 直接转发，不修改 URI
-            // - 非根路径（如 `/minio`）: 使用 rewrite 剥离路由前缀
+            // Internal 类型默认剥离非根路由前缀，可由 strip_route_prefix 覆盖。
+            // - 根路径 `/` 或关闭剥离：直接转发，不修改 URI
+            // - 非根路径（如 `/minio`）且启用剥离：使用 rewrite 剥离路由前缀
             //   访问 /minio -> 重写为 /
             //   访问 /minio/bucket/file -> 重写为 /bucket/file
             // （没有 routes 的 Internal 应用已被过滤，不会到达这里）
@@ -575,7 +590,7 @@ fn generate_location_config(app: &AppConfig, route: &str) -> String {
                 route
             );
 
-            let (proxy_pass_url, rewrite_rule, comment) = if is_root_route {
+            let (proxy_pass_url, rewrite_rule, comment) = if !should_strip_route_prefix {
                 (
                     format!("http://${{{}}}:{}", upstream_host_var, app.container_port),
                     String::new(),
@@ -680,6 +695,7 @@ mod tests {
             container_name: "test_container".to_string(),
             container_port: 80,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
             app_type: AppType::Static,
             description: None,
             nginx_extra_config: None,
@@ -713,6 +729,7 @@ mod tests {
             container_name: "resume_container".to_string(),
             container_port: 80,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: Some(true),
             app_type: AppType::Static,
             description: None,
             nginx_extra_config: None,
@@ -736,6 +753,11 @@ mod tests {
         // 应该有 rewrite 规则，使用可选分组
         assert!(location.contains("rewrite ^/resume_app(/.*)?$ $1 break;"));
         assert!(location.contains("expires 7d;"));
+
+        let mut default_app = app;
+        default_app.strip_route_prefix = None;
+        let default_location = generate_location_config(&default_app, "/resume_app");
+        assert!(default_location.contains("rewrite ^/resume_app(/.*)?$ $1 break;"));
     }
 
     #[test]
@@ -746,6 +768,7 @@ mod tests {
             container_name: "api_container".to_string(),
             container_port: 3000,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
             app_type: AppType::Api,
             description: None,
             nginx_extra_config: Some("add_header 'Access-Control-Allow-Origin' '*';".to_string()),
@@ -766,8 +789,15 @@ mod tests {
         assert!(location.contains("proxy_pass http://${api_service_upstream_host}:3000;"));
         // API服务不应该有尾部的 /
         assert!(!location.contains("proxy_pass http://${api_service_upstream_host}:3000/;"));
+        // API 的非根路由默认保留路由前缀，保持既有配置兼容。
+        assert!(!location.contains("rewrite ^/api(/.*)?$ $1 break;"));
         assert!(location.contains("expires off;"));
         assert!(location.contains("add_header 'Access-Control-Allow-Origin' '*';"));
+
+        let mut preserve_prefix_app = app;
+        preserve_prefix_app.strip_route_prefix = Some(true);
+        let preserved_location = generate_location_config(&preserve_prefix_app, "/api");
+        assert!(preserved_location.contains("rewrite ^/api(/.*)?$ $1 break;"));
     }
 
     #[test]
@@ -778,6 +808,7 @@ mod tests {
             container_name: "test_container".to_string(),
             container_port: 8080,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
             app_type: AppType::Internal,
             description: None,
             nginx_extra_config: None,
@@ -812,6 +843,7 @@ mod tests {
             container_name: "minio_container".to_string(),
             container_port: 9000,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: Some(true),
             app_type: AppType::Internal,
             description: None,
             nginx_extra_config: None,
@@ -835,6 +867,11 @@ mod tests {
         assert!(location.contains("# 内部服务: minio (自动剥离路由前缀)"));
         // location 块使用 /minio 路径
         assert!(location.contains("location /minio"));
+
+        let mut default_app = app;
+        default_app.strip_route_prefix = None;
+        let default_location = generate_location_config(&default_app, "/minio");
+        assert!(default_location.contains("rewrite ^/minio(/.*)?$ $1 break;"));
     }
 
     #[test]
@@ -845,6 +882,7 @@ mod tests {
             container_name: "admin_container".to_string(),
             container_port: 3000,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: Some(true),
             app_type: AppType::Internal,
             description: None,
             nginx_extra_config: None,
@@ -880,6 +918,7 @@ mod tests {
                 container_name: "main_container".to_string(),
                 container_port: 80,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
                 app_type: AppType::Static,
                 description: None,
                 nginx_extra_config: None,
@@ -899,6 +938,7 @@ mod tests {
                 container_name: "api_container".to_string(),
                 container_port: 3000,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
                 app_type: AppType::Api,
                 description: None,
                 nginx_extra_config: None,
@@ -978,6 +1018,7 @@ mod tests {
                 container_name: "main_container".to_string(),
                 container_port: 80,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
                 app_type: AppType::Static,
                 description: None,
                 nginx_extra_config: None,
@@ -997,6 +1038,7 @@ mod tests {
                 container_name: "api_container".to_string(),
                 container_port: 3000,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
                 app_type: AppType::Api,
                 description: None,
                 nginx_extra_config: None,
@@ -1076,6 +1118,7 @@ mod tests {
                 container_name: "main_container".to_string(),
                 container_port: 80,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
                 app_type: AppType::Static,
                 description: None,
                 nginx_extra_config: None,
@@ -1096,6 +1139,7 @@ mod tests {
                 container_name: "redis_container".to_string(),
                 container_port: 6379,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
                 app_type: AppType::Internal,
                 description: None,
                 nginx_extra_config: None,
@@ -1116,6 +1160,7 @@ mod tests {
                 container_name: "minio_container".to_string(),
                 container_port: 9000,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
                 app_type: AppType::Internal,
                 description: Some("MinIO object storage".to_string()),
                 nginx_extra_config: Some("client_max_body_size 0;".to_string()),
@@ -1135,6 +1180,7 @@ mod tests {
                 container_name: "api_container".to_string(),
                 container_port: 3000,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
                 app_type: AppType::Api,
                 description: None,
                 nginx_extra_config: None,
@@ -1223,6 +1269,7 @@ mod tests {
             container_name: "api_container".to_string(),
             container_port: 3000,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
             app_type: AppType::Api,
             description: None,
             nginx_extra_config: None,
@@ -1257,6 +1304,7 @@ mod tests {
                 container_name: "root_container".to_string(),
                 container_port: 80,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
                 app_type: AppType::Static,
                 description: None,
                 nginx_extra_config: None,
@@ -1276,6 +1324,7 @@ mod tests {
                 container_name: "resume_container".to_string(),
                 container_port: 80,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
                 app_type: AppType::Static,
                 description: None,
                 nginx_extra_config: None,
@@ -1295,6 +1344,7 @@ mod tests {
                 container_name: "api_container".to_string(),
                 container_port: 3000,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
                 app_type: AppType::Api,
                 description: None,
                 nginx_extra_config: None,
@@ -1333,14 +1383,15 @@ mod tests {
     }
 
     #[test]
-    fn test_static_rewrite_rule() {
-        // 测试静态资源服务的 rewrite 规则
+    fn test_static_rewrite_rule_when_enabled() {
+        // Static 服务仅在显式启用时剥离路由前缀。
         let app = AppConfig {
             name: "resume_app".to_string(),
             routes: vec!["/resume_app".to_string()],
             container_name: "resume_container".to_string(),
             container_port: 80,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: Some(true),
             app_type: AppType::Static,
             description: None,
             nginx_extra_config: None,
@@ -1365,14 +1416,15 @@ mod tests {
     }
 
     #[test]
-    fn test_api_preserves_path() {
-        // 测试API服务保留完整路径
+    fn test_api_preserves_path_by_default() {
+        // API 服务默认保留非根路由前缀。
         let app = AppConfig {
             name: "api_service".to_string(),
             routes: vec!["/api".to_string()],
             container_name: "api_container".to_string(),
             container_port: 3000,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
             app_type: AppType::Api,
             description: None,
             nginx_extra_config: None,
@@ -1389,11 +1441,10 @@ mod tests {
 
         let location = generate_location_config(&app, "/api");
 
-        // API服务应该保留完整路径，proxy_pass 不应该有尾部的 /
+        // proxy_pass 不应该有尾部的 /
         assert!(location.contains("proxy_pass http://${api_service_upstream_host}:3000;"));
         assert!(!location.contains("proxy_pass http://${api_service_upstream_host}:3000/;"));
-        // API服务不应该有 rewrite 规则
-        assert!(!location.contains("rewrite"));
+        assert!(!location.contains("rewrite ^/api(/.*)?$ $1 break;"));
     }
 
     #[test]
@@ -1405,6 +1456,7 @@ mod tests {
             container_name: "redis_container".to_string(),
             container_port: 6379,
             healthcheck_path: "/".to_string(),
+            strip_route_prefix: None,
             app_type: AppType::Internal,
             description: None,
             nginx_extra_config: None,
